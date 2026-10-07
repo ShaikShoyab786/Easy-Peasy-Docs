@@ -1,2 +1,3 @@
 - [Plain Language Lab scope](plain-language-lab-scope.md) — Phase 1 adds PDF extraction preview beside the existing paste-and-review flow; no simplification/export or OCR.
 - [PyMuPDF stdout](pymupdf-stdout.md) — keep library diagnostics off stdout when a Python subprocess returns machine-readable JSON.
+- [Artifact workflow stale listeners](artifact-workflow-stale-listeners.md) — check listeners after `EADDRINUSE`; a failed managed workflow may leave its earlier process group serving.

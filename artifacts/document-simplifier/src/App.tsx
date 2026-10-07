@@ -308,6 +308,7 @@ function Documents() {
   const [fileError, setFileError] = useState('');
   const [simplifiedResult, setSimplifiedResult] = useState<{ result: string; model: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const simplificationRequestId = useRef(0);
   const simplify = useSimplifyText();
   const extract = useExtractPdfDocument({
     request: {
@@ -324,13 +325,14 @@ function Documents() {
 
   function processFile(file?: File) {
     if (!file) return;
-    setFileError('');
-    setSimplifiedResult(null);
-    simplify.reset();
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setFileError('Choose a PDF file to continue. Only text-based PDFs are supported.');
       return;
     }
+    setFileError('');
+    simplificationRequestId.current += 1;
+    setSimplifiedResult(null);
+    simplify.reset();
     setSelectedFile(file);
     setExtraction(null);
     extract.reset();
@@ -348,6 +350,7 @@ function Documents() {
   }
 
   function resetDocument() {
+    simplificationRequestId.current += 1;
     setExtraction(null);
     setSelectedFile(null);
     setFileError('');
@@ -365,10 +368,15 @@ function Documents() {
 
   function generateDocument() {
     if (!canSimplify || !serialized) return;
+    const requestId = ++simplificationRequestId.current;
     setSimplifiedResult(null);
     simplify.mutate(
       { data: { sourceText: serialized.sourceText, prompt: DOCUMENT_SIMPLIFICATION_PROMPT } },
-      { onSuccess: (response) => setSimplifiedResult(response) },
+      {
+        onSuccess: (response) => {
+          if (requestId === simplificationRequestId.current) setSimplifiedResult(response);
+        },
+      },
     );
   }
 
@@ -559,13 +567,9 @@ function Documents() {
                       <span className="mono text-[9px] uppercase tracking-[.11em] text-[#8a9187]">Prepared model source</span>
                       <span className="mono text-[10px] tabular-nums text-[#758073]" data-testid="text-model-source-count">{sourceLength.toLocaleString()} / 60,000</span>
                     </div>
-                    {isSourceOverLimit ? (
+                    {isSourceOverLimit && (
                       <p className="mt-3 rounded-[9px] border border-[#ead5c9] bg-[#faf1eb] px-3.5 py-3 text-[11px] leading-[1.65] text-[#995c4b]" role="alert" data-testid="status-source-too-long">
                         This PDF prepares {sourceLength.toLocaleString()} characters, above the 60,000-character limit. Choose a shorter PDF or split the document and upload one part at a time.
-                      </p>
-                    ) : (
-                      <p className="mt-3 text-[10px] leading-[1.6] text-[#969b90]" data-testid="text-model-source-note">
-                        Tables and images are referenced without sending image data or page numbers.
                       </p>
                     )}
                     <button
