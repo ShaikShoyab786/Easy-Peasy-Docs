@@ -1,9 +1,8 @@
 import { Router, type IRouter } from "express";
 import { SimplifyTextBody, SimplifyTextResponse } from "@workspace/api-zod";
-import { ReplitConnectors } from "@replit/connectors-sdk";
 
 const router: IRouter = Router();
-const connectors = new ReplitConnectors();
+const XAI_API_BASE = "https://api.x.ai/v1";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -38,6 +37,28 @@ function extractOutputText(payload: unknown): string | null {
   return result.length > 0 ? result : null;
 }
 
+function extractErrorMessage(payload: unknown): string | undefined {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const error = payload.error;
+  if (typeof error === "string") {
+    return error;
+  }
+  if (isRecord(error) && typeof error.message === "string") {
+    return error.message;
+  }
+  if (typeof payload.message === "string") {
+    return payload.message;
+  }
+  if (typeof payload.detail === "string") {
+    return payload.detail;
+  }
+
+  return undefined;
+}
+
 function modelVersion(id: string): number[] {
   const match = id.match(/^grok-(\d+(?:\.\d+)?)/i);
   return match
@@ -53,31 +74,18 @@ type ModelDiscovery = {
   advertisedModels?: string[];
 };
 
-async function discoverGrokModel(): Promise<ModelDiscovery> {
-  const response = await connectors.proxy("xai", "/v1/models", {
-    method: "GET",
+async function discoverGrokModel(apiKey: string): Promise<ModelDiscovery> {
+  const response = await fetch(`${XAI_API_BASE}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const failurePayload: unknown = await response.json().catch(() => null);
-    const error = isRecord(failurePayload) ? failurePayload.error : null;
-    const nestedError = isRecord(error) ? error : null;
-    const message =
-      typeof error === "string"
-        ? error
-        : nestedError && typeof nestedError.message === "string"
-          ? nestedError.message
-          : isRecord(failurePayload) &&
-              typeof failurePayload.message === "string"
-            ? failurePayload.message
-            : isRecord(failurePayload) &&
-                typeof failurePayload.detail === "string"
-              ? failurePayload.detail
-              : undefined;
 
     return {
       model: null,
       upstreamStatus: response.status,
-      upstreamMessage: message?.slice(0, 300),
+      upstreamMessage: extractErrorMessage(failurePayload)?.slice(0, 300),
     };
   }
 
@@ -143,8 +151,16 @@ router.post("/simplify", async (req, res): Promise<void> => {
     return;
   }
 
+  const apiKey = process.env.XAI_API_KEY?.trim();
+  if (!apiKey) {
+    res.status(503).json({
+      error: "Add XAI_API_KEY to Replit Secrets, then retry generation.",
+    });
+    return;
+  }
+
   try {
-    const discovery = await discoverGrokModel();
+    const discovery = await discoverGrokModel(apiKey);
     if (!discovery.model) {
       req.log.warn(
         {
@@ -159,25 +175,32 @@ router.post("/simplify", async (req, res): Promise<void> => {
         error:
           discovery.upstreamMessage &&
           /incorrect api key|invalid api key/i.test(discovery.upstreamMessage)
-            ? "The xAI connection rejected its API key. Update it in Replit Integrations and try again."
-            : "No Grok text model is available through the xAI connection.",
+            ? "xAI rejected XAI_API_KEY. Replace it with a key from the xAI Console API Keys page."
+            : "No Grok text model is available through the xAI API.",
       });
       return;
     }
     const model = discovery.model;
 
-    const upstream = await connectors.proxy("xai", "/v1/responses", {
+    const upstream = await fetch(`${XAI_API_BASE}/responses`, {
       method: "POST",
-      body: {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         model,
         input: `${sourceText}\n\n${prompt}`,
         store: false,
-      },
+      }),
+      signal: AbortSignal.timeout(60_000),
     });
 
     if (!upstream.ok) {
+      const failurePayload: unknown = await upstream.json().catch(() => null);
+      const upstreamMessage = extractErrorMessage(failurePayload);
       req.log.warn(
-        { upstreamStatus: upstream.status },
+        { upstreamStatus: upstream.status, upstreamMessage },
         "Grok API returned an unsuccessful response",
       );
 
@@ -188,9 +211,14 @@ router.post("/simplify", async (req, res): Promise<void> => {
         return;
       }
 
-      if (upstream.status === 401 || upstream.status === 403) {
-        res.status(502).json({
-          error: "The xAI connection needs attention. Reconnect it and try again.",
+      if (
+        upstream.status === 401 ||
+        upstream.status === 403 ||
+        (upstreamMessage && /incorrect api key|invalid api key/i.test(upstreamMessage))
+      ) {
+        res.status(503).json({
+          error:
+            "xAI rejected XAI_API_KEY. Replace it with a key from the xAI Console API Keys page.",
         });
         return;
       }
