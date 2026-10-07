@@ -56,22 +56,22 @@ function Home() {
         <header className="flex h-[76px] items-center justify-between border-b border-[#d9d7c9]">
           <div className="flex items-center gap-3.5">
             <div className="grid h-9 w-9 place-items-center rounded-[11px] bg-[#29483d] text-[#e8edce]">
-              <span className="serif text-[23px] leading-none">p.</span>
+              <span className="text-[19px] font-extrabold tracking-[-.08em]">EP</span>
             </div>
             <div>
-              <div className="text-[14px] font-semibold tracking-[-.025em] text-[#293b33]">Plain Language Lab</div>
-              <div className="mono mt-0.5 text-[9px] uppercase tracking-[.16em] text-[#778079]">A document testing workspace</div>
+              <div className="text-[15px] font-extrabold tracking-[-.04em] text-[#293b33]">Easy Peasy Docs</div>
+              <div className="mono mt-0.5 text-[10px] uppercase tracking-[.12em] text-[#778079]">Policy clarity workspace</div>
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
             <Link href="/documents" data-testid="link-create-document" className="group max-w-[138px] text-right leading-tight text-[#42594b] transition-colors hover:text-[#29483d] sm:max-w-none sm:text-left">
-              <span className="block text-[11px] font-semibold sm:text-[12px]">Create a simplified document</span>
-              <span className="mt-1 block max-w-[132px] text-[8px] leading-[1.35] text-[#879087] sm:max-w-none sm:text-[10px]">Review extracted text, tables, and images from a PDF</span>
+              <span className="block text-[12px] font-bold sm:text-[13px]">Review a PDF</span>
+              <span className="mt-1 block max-w-[132px] text-[10px] leading-[1.4] text-[#879087] sm:max-w-none sm:text-[11px]">Inspect extracted text, tables, and images</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d9d7c9] bg-[#f7f5ec]/75 px-2.5 py-1.5 sm:px-3">
               <span className={`h-1.5 w-1.5 rounded-full ${isServiceReady ? 'bg-[#708d55]' : health.isError ? 'bg-[#b75f4d]' : 'bg-[#c6a54d]'}`} />
               <span className="mono hidden text-[10px] uppercase tracking-[.12em] text-[#68746c] sm:inline">
-                {health.isLoading ? 'Connecting' : isServiceReady ? 'Ready to test' : health.isError ? 'Service offline' : 'Starting'}
+                {health.isLoading ? 'Connecting' : isServiceReady ? 'Ready' : health.isError ? 'Service offline' : 'Starting'}
               </span>
             </div>
           </div>
@@ -82,13 +82,13 @@ function Home() {
             <div className="max-w-[700px]">
               <div className="mono mb-4 flex items-center gap-2 text-[10px] uppercase tracking-[.19em] text-[#728071]">
                 <span className="h-px w-6 bg-[#a9b294]" />
-                Make the complicated make sense
+                MAKE IT EASY PEASY
               </div>
               <h1 className="serif text-[42px] leading-[.99] tracking-[-.045em] text-[#293b33] sm:text-[55px]">
-                Clarity, put<br className="hidden sm:block" /> to the test.
+                Policies simplified,<br className="hidden sm:block" /> in seconds.
               </h1>
               <p className="mt-4 max-w-[445px] text-[14px] leading-[1.7] text-[#68746c]">
-                Try your plain-language prompt against the real thing. Read the result, decide if it feels right, then refine.
+                Paste a policy to generate a plain-language rewrite, or inspect a text-based PDF in the review workspace. No emojis, no fluff, just pure clarity.
               </p>
             </div>
             <div className="hidden min-w-[186px] items-center gap-3 pb-1 sm:flex">
@@ -107,7 +107,7 @@ function Home() {
               <div className="flex h-[62px] items-center justify-between border-b border-[#e3e1d6] px-5 sm:px-6">
                 <div className="flex items-center gap-3">
                   <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">01</span>
-                  <h2 className="text-[13px] font-semibold tracking-[-.01em] text-[#31433a]">Source document</h2>
+                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">01 Source Document</h2>
                 </div>
                 {sourceText.length > 0 && (
                   <button
@@ -189,7 +189,7 @@ function Home() {
               <div className="flex h-[62px] shrink-0 items-center justify-between border-b border-[#e3e1d6] px-5 sm:px-6">
                 <div className="flex items-center gap-3">
                   <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">02</span>
-                  <h2 className="text-[13px] font-semibold tracking-[-.01em] text-[#31433a]">Plain-language result</h2>
+                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">02 Easy Layman Language Output</h2>
                 </div>
                 {result && (
                   <button
@@ -358,11 +358,11 @@ function Documents() {
         <header className="flex min-h-[76px] items-center justify-between gap-4 border-b border-[#d9d7c9] py-3">
           <Link href="/" data-testid="link-home" className="flex items-center gap-3.5">
             <div className="grid h-9 w-9 place-items-center rounded-[11px] bg-[#29483d] text-[#e8edce]">
-              <span className="serif text-[23px] leading-none">p.</span>
+              <span className="text-[19px] font-extrabold tracking-[-.08em]">EP</span>
             </div>
             <div>
-              <div className="text-[14px] font-semibold tracking-[-.025em] text-[#293b33]">Plain Language Lab</div>
-              <div className="mono mt-0.5 text-[9px] uppercase tracking-[.16em] text-[#778079]">A document testing workspace</div>
+              <div className="text-[15px] font-extrabold tracking-[-.04em] text-[#293b33]">Easy Peasy Docs</div>
+              <div className="mono mt-0.5 text-[10px] uppercase tracking-[.12em] text-[#778079]">Policy clarity workspace</div>
             </div>
           </Link>
           <Link href="/" data-testid="link-back-to-text" className="flex items-center gap-2 rounded-full border border-[#d9d7c9] bg-[#f7f5ec]/75 px-3.5 py-2 text-[11px] font-medium text-[#637267] transition-colors hover:bg-[#eff0e6] hover:text-[#29483d]">
@@ -373,15 +373,15 @@ function Documents() {
         <main className="mx-auto max-w-[1170px]">
           <section className="fade-up flex flex-col justify-between gap-7 pb-8 pt-10 sm:flex-row sm:items-end sm:pb-9 sm:pt-[54px]">
             <div className="max-w-[740px]">
-              <div className="mono mb-4 flex items-center gap-2 text-[10px] uppercase tracking-[.19em] text-[#728071]">
+            <div className="mono mb-4 flex items-center gap-2 text-[11px] uppercase tracking-[.16em] text-[#728071]">
                 <span className="h-px w-6 bg-[#a9b294]" />
-                Document workspace · Phase 1
+                PDF review workspace
               </div>
               <h1 className="serif text-[42px] leading-[.99] tracking-[-.045em] text-[#293b33] sm:text-[55px]">
-                See what the<br className="hidden sm:block" /> document says.
+                See what your<br className="hidden sm:block" /> PDF contains.
               </h1>
               <p className="mt-4 max-w-[510px] text-[14px] leading-[1.7] text-[#68746c]">
-                Upload a text-based PDF to inspect its extracted words, tables, and images before any plain-language work begins.
+                Upload a text-based PDF to review extracted text, tables, embedded images, and source pages.
               </p>
             </div>
             <div className="hidden min-w-[190px] items-center gap-3 pb-1 sm:flex">
@@ -397,7 +397,7 @@ function Documents() {
               <article className="panel overflow-hidden rounded-[17px]">
                 <div className="flex h-[62px] items-center gap-3 border-b border-[#e3e1d6] px-5 sm:px-6">
                   <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">01</span>
-                  <h2 className="text-[13px] font-semibold tracking-[-.01em] text-[#31433a]">Choose a source</h2>
+                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">Choose a source PDF</h2>
                 </div>
                 <div className="p-5 sm:p-6">
                   <div
@@ -460,7 +460,7 @@ function Documents() {
               <article className="panel flex min-h-[405px] flex-col overflow-hidden rounded-[17px]">
                 <div className="flex h-[62px] items-center gap-3 border-b border-[#e3e1d6] px-5 sm:px-6">
                   <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">02</span>
-                  <h2 className="text-[13px] font-semibold tracking-[-.01em] text-[#31433a]">Extraction preview</h2>
+                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">Extraction preview</h2>
                 </div>
                 <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center" data-testid="empty-extraction-preview">
                   <div className="relative mb-5 grid h-[62px] w-[62px] place-items-center rounded-full border border-[#e0e1d5] bg-[#f6f5ed]">
@@ -590,7 +590,7 @@ function Documents() {
             </section>
           )}
           <footer className="flex items-center justify-between py-6">
-            <span className="mono text-[9px] uppercase tracking-[.14em] text-[#9a9e92]">Plain words. Better understanding.</span>
+            <span className="mono text-[10px] uppercase tracking-[.12em] text-[#9a9e92]">Easy Peasy Docs · PDF review</span>
             <Link href="/" className="mono text-[9px] tracking-[.08em] text-[#858d84] hover:text-[#425348]">BACK TO TEXT WORKSPACE</Link>
           </footer>
         </main>

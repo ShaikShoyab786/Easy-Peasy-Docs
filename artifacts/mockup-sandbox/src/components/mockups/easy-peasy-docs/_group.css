@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap');
+
+.easy-peasy-docs {
+  --background: 42 34% 95%;
+  --foreground: 164 20% 17%;
+  --border: 42 17% 84%;
+  --input: 42 17% 84%;
+  --card: 42 33% 98%;
+  --card-foreground: 164 20% 17%;
+  --primary: 164 28% 25%;
+  --primary-foreground: 42 34% 96%;
+  --secondary: 42 26% 90%;
+  --secondary-foreground: 164 20% 22%;
+  --muted: 42 20% 91%;
+  --muted-foreground: 160 8% 45%;
+  --accent: 73 56% 72%;
+  --accent-foreground: 164 20% 17%;
+  --destructive: 4 59% 49%;
+  --destructive-foreground: 42 34% 97%;
+  --ring: 164 28% 33%;
+  --app-font-sans: 'DM Sans', sans-serif;
+  --app-font-serif: 'Newsreader', Georgia, serif;
+  --app-font-mono: 'DM Mono', monospace;
+  --radius: 0.8rem;
+  --shadow-card: 0 12px 38px rgba(60, 71, 55, 0.055), 0 1px 2px rgba(60, 71, 55, 0.04);
+  min-height: 100vh;
+  font-family: var(--app-font-sans);
+  font-feature-settings: "ss01" on;
+}
+
+.easy-peasy-docs.dark {
+  --background: 164 20% 11%;
+  --foreground: 42 26% 91%;
+  --border: 164 12% 26%;
+  --input: 164 12% 28%;
+  --card: 164 17% 15%;
+  --card-foreground: 42 26% 91%;
+  --primary: 73 47% 70%;
+  --primary-foreground: 164 20% 13%;
+  --secondary: 164 13% 22%;
+  --secondary-foreground: 42 26% 91%;
+  --muted: 164 13% 21%;
+  --muted-foreground: 42 10% 64%;
+  --accent: 73 47% 70%;
+  --accent-foreground: 164 20% 13%;
+  --destructive: 4 58% 58%;
+  --destructive-foreground: 42 30% 96%;
+  --ring: 73 47% 70%;
+}
+
+.easy-peasy-docs.lab-shell {
+  min-height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(189, 202, 142, .17), transparent 32rem),
+    hsl(var(--background));
+}
+.easy-peasy-docs.lab-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .14;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
+}
+.easy-peasy-docs .lab-content { position: relative; z-index: 1; }
+.easy-peasy-docs .serif { font-family: var(--app-font-serif); }
+.easy-peasy-docs .mono { font-family: var(--app-font-mono); }
+.easy-peasy-docs .panel {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  box-shadow: var(--shadow-card);
+}
+.easy-peasy-docs.document-page {
+  background:
+    radial-gradient(ellipse at 91% 2%, rgba(189, 202, 142, .2), transparent 30rem),
+    hsl(var(--background));
+}
+.easy-peasy-docs .drop-zone {
+  border: 1px dashed #aeb8a4;
+  background: rgba(250, 249, 243, .76);
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.easy-peasy-docs .drop-zone:hover, .easy-peasy-docs .drop-zone.is-dragging {
+  border-color: #557363;
+  background: #f2f4e9;
+}
+.easy-peasy-docs .drop-zone.is-dragging { transform: translateY(-2px); }
+.easy-peasy-docs .document-block + .document-block { border-top: 1px solid #e8e6dc; }
+.easy-peasy-docs .document-table th, .easy-peasy-docs .document-table td {
+  border: 1px solid #e4e2d7;
+  padding: .65rem .8rem;
+  text-align: left;
+  vertical-align: top;
+}
+.easy-peasy-docs .document-table th {
+  background: #f0f1e8;
+  color: #43564a;
+  font-weight: 600;
+}
+.easy-peasy-docs .document-table td { color: #657168; }
+.easy-peasy-docs .textarea-reset {
+  resize: vertical;
+  outline: none;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.easy-peasy-docs .textarea-reset:focus-visible { box-shadow: inset 0 0 0 1px hsl(var(--ring) / .55); }
+.easy-peasy-docs .fade-up { animation: easyPeasyFadeUp .48s cubic-bezier(.2,.75,.25,1) both; }
+.easy-peasy-docs .fade-up-delay { animation: easyPeasyFadeUp .56s cubic-bezier(.2,.75,.25,1) .08s both; }
+@keyframes easyPeasyFadeUp { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .easy-peasy-docs *, .easy-peasy-docs *::before, .easy-peasy-docs *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}
