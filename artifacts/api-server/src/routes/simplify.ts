@@ -34,7 +34,13 @@ function extractOutputText(payload: unknown): string | null {
   }
 
   const result = textParts.join("\n").trim();
-  return result.length > 0 ? result : null;
+  const bottomLineHeading = /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?bottom[ \t]+line(?:\*\*)?:?(?:\*\*)?[ \t]*$/im.exec(
+    result,
+  );
+  const withoutBottomLine = bottomLineHeading
+    ? result.slice(0, bottomLineHeading.index).trim()
+    : result;
+  return withoutBottomLine.length > 0 ? withoutBottomLine : null;
 }
 
 function extractErrorMessage(payload: unknown): string | undefined {
@@ -190,7 +196,7 @@ router.post("/simplify", async (req, res): Promise<void> => {
       },
       body: JSON.stringify({
         model,
-        input: `${sourceText}\n\n${prompt}`,
+        input: `${sourceText}\n\n${prompt}\n\nDo not include a section titled "Bottom line."`,
         store: false,
       }),
       signal: AbortSignal.timeout(60_000),
