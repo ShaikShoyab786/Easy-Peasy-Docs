@@ -162,7 +162,7 @@
 .lab-shell article [class*="border-t"] { border-color: #e7eaf2 !important; }
 .lab-shell button:focus-visible, .lab-shell a:focus-visible, .lab-shell label:focus-within { outline: 3px solid rgba(79,70,229,.35); outline-offset: 3px; }
 .lab-shell button { transition: background-color .18s ease, transform .18s ease, box-shadow .18s ease; }
-.lab-shell [class*="text-[9px]"], .lab-shell [class*="text-[10px]"] { font-size: 11px !important; }
+.lab-shell [class*="text-[8px]"], .lab-shell [class*="text-[9px]"], .lab-shell [class*="text-[10px]"] { font-size: 12px !important; line-height: 1.45; }
 .lab-shell [class*="text-[11px]"] { font-size: 12px !important; }
 .lab-shell .skeleton-line {
   height: 11px;

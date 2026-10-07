@@ -87,17 +87,17 @@ function Home() {
             </div>
             <div>
               <div className="text-[15px] font-extrabold tracking-[-.04em] text-[#293b33]">Easy Peasy Docs</div>
-              <div className="mono mt-0.5 text-[10px] uppercase tracking-[.12em] text-[#778079]">Policy clarity workspace</div>
+              <div className="mono mt-0.5 hidden text-[10px] uppercase tracking-[.12em] text-[#778079] sm:block">Policy clarity workspace</div>
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
             <Link href="/documents" data-testid="link-create-document" className="group max-w-[138px] text-right leading-tight text-[#42594b] transition-colors hover:text-[#29483d] sm:max-w-none sm:text-left">
               <span className="block text-[12px] font-bold sm:text-[13px]">Review a PDF</span>
-              <span className="mt-1 block max-w-[132px] text-[10px] leading-[1.4] text-[#879087] sm:max-w-none sm:text-[11px]">Inspect extracted text, tables, and images</span>
+              <span className="mt-1 hidden max-w-[132px] text-[10px] leading-[1.4] text-[#879087] sm:block sm:max-w-none sm:text-[11px]">Inspect extracted text, tables, and images</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d9d7c9] bg-[#f7f5ec]/75 px-2.5 py-1.5 sm:px-3">
               <span className={`h-1.5 w-1.5 rounded-full ${isServiceReady ? 'bg-[#708d55]' : health.isError ? 'bg-[#b75f4d]' : 'bg-[#c6a54d]'}`} />
-              <span className="mono hidden text-[10px] uppercase tracking-[.12em] text-[#68746c] sm:inline">
+              <span className="mono text-[10px] uppercase tracking-[.12em] text-[#68746c]">
                 {health.isLoading ? 'Connecting' : isServiceReady ? 'Ready' : health.isError ? 'Service offline' : 'Starting'}
               </span>
             </div>
@@ -134,7 +134,7 @@ function Home() {
               <div className="flex h-[62px] items-center justify-between border-b border-[#e3e1d6] px-5 sm:px-6">
                 <div className="flex items-center gap-3">
                   <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">01</span>
-                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">01 Source Document</h2>
+                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">Source Document</h2>
                 </div>
                 {sourceText.length > 0 && (
                   <button
@@ -216,7 +216,7 @@ function Home() {
               <div className="flex h-[62px] shrink-0 items-center justify-between border-b border-[#e3e1d6] px-5 sm:px-6">
                 <div className="flex items-center gap-3">
                   <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">02</span>
-                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">02 Easy Layman Language Output</h2>
+                  <h2 className="text-[15px] font-bold tracking-[-.02em] text-[#31433a]">Easy Layman Language Output</h2>
                 </div>
                 {result && (
                   <button

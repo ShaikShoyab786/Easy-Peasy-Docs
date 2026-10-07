@@ -52,7 +52,6 @@
 .easy-peasy-docs header [class*="rounded-[11px]"] { background: #4f46e5 !important; color: white !important; box-shadow: 0 6px 14px rgba(79,70,229,.18); }
 .easy-peasy-docs .skeleton-line { height: 11px; max-width: 100%; border-radius: 99px; background: linear-gradient(90deg,#e8eaf7 0%,#f4f5fc 48%,#e8eaf7 100%); animation: easyPeasyBrandFade 1.3s ease-in-out infinite alternate; }
 .easy-peasy-docs button:focus-visible, .easy-peasy-docs a:focus-visible, .easy-peasy-docs label:focus-within { outline: 3px solid rgba(79,70,229,.35); outline-offset: 3px; }
-.easy-peasy-docs [class*="text-[9px]"] { font-size: 11px !important; }
-.easy-peasy-docs [class*="text-[10px]"] { font-size: 11px !important; }
+.easy-peasy-docs [class*="text-[8px]"], .easy-peasy-docs [class*="text-[9px]"], .easy-peasy-docs [class*="text-[10px]"] { font-size: 12px !important; line-height: 1.45; }
 .easy-peasy-docs [class*="text-[11px]"] { font-size: 12px !important; }
 @media (prefers-reduced-motion: reduce) { .easy-peasy-docs *, .easy-peasy-docs *::before, .easy-peasy-docs *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }

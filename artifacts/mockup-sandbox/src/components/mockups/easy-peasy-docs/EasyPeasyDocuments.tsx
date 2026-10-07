@@ -87,7 +87,7 @@ function Home() {
             </div>
             <div>
               <div className="text-[15px] font-extrabold tracking-[-.04em] text-[#293b33]">Easy Peasy Docs</div>
-              <div className="mono mt-0.5 text-[10px] uppercase tracking-[.12em] text-[#778079]">Policy clarity workspace</div>
+              <div className="mono mt-0.5 hidden text-[10px] uppercase tracking-[.12em] text-[#778079] sm:block">Policy clarity workspace</div>
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
@@ -388,7 +388,7 @@ function Documents() {
               <div className="mono mt-0.5 text-[10px] uppercase tracking-[.12em] text-[#778079]">Policy clarity workspace</div>
             </div>
           </Link>
-          <Link href="/" data-testid="link-back-to-text" className="flex items-center gap-2 rounded-full border border-[#d9d7c9] bg-[#f7f5ec]/75 px-3.5 py-2 text-[11px] font-medium text-[#637267] transition-colors hover:bg-[#eff0e6] hover:text-[#29483d]">
+          <Link href="/" data-testid="link-back-to-text" className="flex items-center gap-2 whitespace-nowrap rounded-full border border-[#d9d7c9] bg-[#f7f5ec]/75 px-3.5 py-2 text-[11px] font-medium text-[#637267] transition-colors hover:bg-[#eff0e6] hover:text-[#29483d]">
             <ArrowRight size={13} className="rotate-180" /> Text workspace
           </Link>
         </header>
