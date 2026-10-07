@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useHealthCheck, useSimplifyText, useExtractPdfDocument, getHealthCheckQueryKey } from '@workspace/api-client-react';
 import type { DocumentExtraction } from '@workspace/api-client-react';
 import { ArrowDown, ArrowRight, Check, Clipboard, FileText, RotateCcw, Sparkles, X, Upload, FileSearch, Image as ImageIcon, Table2, ChevronRight } from 'lucide-react';
 import { Link, Route, Switch } from 'wouter';
+import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument } from './document-simplification';
 
 const queryClient = new QueryClient();
 const DEFAULT_PROMPT = 'Please explain the above in easy layman language with examples';
@@ -305,7 +306,9 @@ function Documents() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState('');
+  const [simplifiedResult, setSimplifiedResult] = useState<{ result: string; model: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const simplify = useSimplifyText();
   const extract = useExtractPdfDocument({
     request: {
       headers: selectedFile ? { 'X-File-Name': selectedFile.name } : undefined,
@@ -322,6 +325,8 @@ function Documents() {
   function processFile(file?: File) {
     if (!file) return;
     setFileError('');
+    setSimplifiedResult(null);
+    simplify.reset();
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setFileError('Choose a PDF file to continue. Only text-based PDFs are supported.');
       return;
@@ -346,11 +351,26 @@ function Documents() {
     setExtraction(null);
     setSelectedFile(null);
     setFileError('');
+    setSimplifiedResult(null);
+    simplify.reset();
     extract.reset();
   }
 
   const blocks = extraction?.blocks ?? [];
   const hasContent = !!extraction && (blocks.length > 0 || extraction.extractedText.length > 0);
+  const serialized = useMemo(() => extraction ? serializeExtraction(extraction) : null, [extraction]);
+  const sourceLength = serialized?.sourceText.length ?? 0;
+  const isSourceOverLimit = sourceLength > 60_000;
+  const canSimplify = hasContent && sourceLength > 0 && !isSourceOverLimit && !simplify.isPending;
+
+  function generateDocument() {
+    if (!canSimplify || !serialized) return;
+    setSimplifiedResult(null);
+    simplify.mutate(
+      { data: { sourceText: serialized.sourceText, prompt: DOCUMENT_SIMPLIFICATION_PROMPT } },
+      { onSuccess: (response) => setSimplifiedResult(response) },
+    );
+  }
 
   return (
     <div className="lab-shell document-page">
@@ -521,6 +541,113 @@ function Documents() {
                   <div className="text-[10px] text-[#8a9187]">Found in source</div>
                 </div>
               </div>
+
+              <section className="mb-5 grid items-stretch gap-5 lg:grid-cols-[minmax(0,.72fr)_minmax(0,1.28fr)]" aria-label="PDF simplification" data-testid="section-pdf-simplification">
+                <article className="panel flex flex-col overflow-hidden rounded-[17px]">
+                  <div className="flex min-h-[62px] items-center gap-3 border-b border-[#e3e1d6] px-5 sm:px-6">
+                    <span className="grid h-8 w-8 place-items-center rounded-[9px] bg-[#e8ecdf] text-[#526d5c]"><Sparkles size={15} strokeWidth={1.7} /></span>
+                    <div>
+                      <div className="mono text-[9px] uppercase tracking-[.14em] text-[#899286]">Phase 2</div>
+                      <h2 className="text-[14px] font-bold tracking-[-.02em] text-[#31433a]">Make a simpler document</h2>
+                    </div>
+                  </div>
+                  <div className="flex flex-1 flex-col p-5 sm:p-6">
+                    <p className="text-[12px] leading-[1.75] text-[#737d73]">
+                      Create a faithful plain-language version while keeping this original extraction available below for comparison.
+                    </p>
+                    <div className="mt-4 flex items-center justify-between border-t border-[#ebe9df] pt-3">
+                      <span className="mono text-[9px] uppercase tracking-[.11em] text-[#8a9187]">Prepared model source</span>
+                      <span className="mono text-[10px] tabular-nums text-[#758073]" data-testid="text-model-source-count">{sourceLength.toLocaleString()} / 60,000</span>
+                    </div>
+                    {isSourceOverLimit ? (
+                      <p className="mt-3 rounded-[9px] border border-[#ead5c9] bg-[#faf1eb] px-3.5 py-3 text-[11px] leading-[1.65] text-[#995c4b]" role="alert" data-testid="status-source-too-long">
+                        This PDF prepares {sourceLength.toLocaleString()} characters, above the 60,000-character limit. Choose a shorter PDF or split the document and upload one part at a time.
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-[10px] leading-[1.6] text-[#969b90]" data-testid="text-model-source-note">
+                        Tables and images are referenced without sending image data or page numbers.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={generateDocument}
+                      disabled={!canSimplify}
+                      className="group mt-5 inline-flex min-h-[43px] w-full items-center justify-center gap-2 rounded-[9px] bg-[#29483d] px-4 text-[12px] font-semibold text-[#f5f5e9] shadow-[0_3px_0_#1c372e] transition-all hover:bg-[#36584b] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:bg-[#a4ada2] disabled:shadow-none"
+                      data-testid="button-simplify-pdf"
+                    >
+                      {simplify.isPending ? (
+                        <>
+                          <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-[#c5d0c2] border-t-transparent" />
+                          Simplifying document
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} strokeWidth={1.8} />
+                          Simplify this PDF
+                          <ArrowRight className="transition-transform group-hover:translate-x-0.5" size={14} strokeWidth={1.8} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </article>
+
+                <article className="panel flex min-h-[270px] flex-col overflow-hidden rounded-[17px]">
+                  <div className="flex min-h-[62px] items-center justify-between gap-3 border-b border-[#e3e1d6] px-5 sm:px-6">
+                    <div className="flex items-center gap-3">
+                      <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">02</span>
+                      <h2 className="text-[14px] font-bold tracking-[-.02em] text-[#31433a]">Simplified document</h2>
+                    </div>
+                    {simplifiedResult && <span className="mono rounded-full bg-[#eef1e7] px-2.5 py-1 text-[9px] uppercase tracking-[.1em] text-[#6d8066]" data-testid="status-simplification-success">Ready</span>}
+                  </div>
+                  <div className="flex flex-1 flex-col px-5 py-5 sm:px-6">
+                    {simplify.isPending ? (
+                      <div className="flex flex-1 flex-col gap-4 pt-1" role="status" aria-label="Simplifying PDF" data-testid="status-simplifying-pdf">
+                        <div className="flex items-center gap-2 pb-1">
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-[#91a575]" />
+                          <span className="mono text-[9px] uppercase tracking-[.12em] text-[#879080]">Reading for clarity</span>
+                        </div>
+                        <div className="skeleton-line w-[92%]" />
+                        <div className="skeleton-line w-[84%]" />
+                        <div className="skeleton-line w-[71%]" />
+                        <div className="skeleton-line mt-3 w-[88%]" />
+                        <div className="skeleton-line w-[58%]" />
+                      </div>
+                    ) : simplify.isError ? (
+                      <div className="flex flex-1 flex-col items-center justify-center px-3 py-4 text-center" data-testid="status-simplification-error">
+                        <div className="mb-3 grid h-10 w-10 place-items-center rounded-full border border-[#e3d3c4] bg-[#f8eee4] text-[#a9604d]"><RotateCcw size={16} strokeWidth={1.6} /></div>
+                        <h3 className="serif text-[22px] tracking-[-.02em] text-[#38483e]">The rewrite didn’t come through.</h3>
+                        <p className="mt-2 max-w-[380px] text-[11px] leading-[1.65] text-[#788078]">
+                          {simplify.error instanceof Error ? simplify.error.message : 'Check your connection and try again. The original extraction is still here.'}
+                        </p>
+                        <button type="button" onClick={generateDocument} disabled={!canSimplify} className="mt-4 inline-flex min-h-[35px] items-center gap-2 rounded-md border border-[#d8dacd] bg-[#fbfaf5] px-3.5 text-[11px] font-semibold text-[#526255] transition-colors hover:bg-[#f0f1e7] disabled:opacity-50" data-testid="button-retry-simplification">
+                          <RotateCcw size={12} /> Try again
+                        </button>
+                      </div>
+                    ) : simplifiedResult ? (
+                      <>
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <span className="mono flex items-center gap-2 text-[9px] uppercase tracking-[.13em] text-[#829079]"><Check size={12} /> Plain-language version</span>
+                          <span className="mono max-w-[52%] truncate text-[9px] tracking-[.04em] text-[#a0a397]" title={simplifiedResult.model} data-testid="text-simplification-model">{simplifiedResult.model}</span>
+                        </div>
+                        <SimplifiedDocument content={simplifiedResult.result} elements={serialized?.elements ?? {}} />
+                      </>
+                    ) : (
+                      <div className="flex flex-1 flex-col items-center justify-center py-8 text-center" data-testid="empty-simplified-document">
+                        <div className="relative mb-4 grid h-[54px] w-[54px] place-items-center rounded-full border border-[#e0e1d5] bg-[#f6f5ed]">
+                          <div className="absolute inset-[6px] rounded-full border border-dashed border-[#d3d8c7]" />
+                          <ArrowDown size={18} strokeWidth={1.45} className="text-[#71826d]" />
+                        </div>
+                        <h3 className="serif text-[23px] tracking-[-.025em] text-[#46564a]">A clearer read, next.</h3>
+                        <p className="mt-2 max-w-[275px] text-[11px] leading-[1.7] text-[#8b9187]">Your generated document will appear here. The source review remains unchanged below.</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex min-h-[43px] items-center justify-between border-t border-[#e3e1d6] bg-[#f8f7f0] px-5 sm:px-6">
+                    <span className="mono text-[9px] uppercase tracking-[.12em] text-[#999d91]">Generated preview · Source preserved</span>
+                    {simplifiedResult && <span className="mono text-[9px] tabular-nums text-[#858d84]" data-testid="text-simplified-character-count">{simplifiedResult.result.length.toLocaleString()} characters</span>}
+                  </div>
+                </article>
+              </section>
 
               <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
                 <article className="panel overflow-hidden rounded-[17px]">
