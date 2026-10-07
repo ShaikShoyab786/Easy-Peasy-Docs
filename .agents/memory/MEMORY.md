@@ -1,1 +1,2 @@
-- [Plain Language Lab scope](plain-language-lab-scope.md) — the first release is paste-and-review; PDF extraction and source-grounded Q&A are later scope.
+- [Plain Language Lab scope](plain-language-lab-scope.md) — Phase 1 adds PDF extraction preview beside the existing paste-and-review flow; no simplification/export or OCR.
+- [PyMuPDF stdout](pymupdf-stdout.md) — keep library diagnostics off stdout when a Python subprocess returns machine-readable JSON.

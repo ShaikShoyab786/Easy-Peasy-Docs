@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import mimetypes
 import re
@@ -145,7 +146,7 @@ def is_page_number_line(line: dict[str, Any], page: fitz.Page) -> bool:
     bbox = line["bbox"]
     if len(bbox) != 4 or not PAGE_NUMBER.fullmatch(text):
         return False
-    return bbox[1] <= page.rect.height * 0.08 or bbox[3] >= page.rect.height * 0.92
+    return bbox[1] <= page.rect.height * 0.1 or bbox[3] >= page.rect.height * 0.9
 
 
 def is_person_name(text: str) -> bool:
@@ -183,12 +184,6 @@ def is_author_byline(
     bbox = line["bbox"]
     if len(bbox) != 4:
         return False
-    vertical_position = (bbox[1] + bbox[3]) / 2
-    if page_index == 0 and vertical_position > page.rect.height * 0.78:
-        return False
-    if page_index == page_count - 1 and vertical_position < page.rect.height * 0.22:
-        return False
-
     nearby = lines[max(0, line_index - 2) : line_index + 3]
     has_affiliation_context = any(
         AFFILIATION_WORDS.search(nearby_line["text"]) for nearby_line in nearby
@@ -423,7 +418,8 @@ def main() -> None:
     try:
         if len(sys.argv) != 2:
             raise ExtractionError("An input PDF path is required.", 400)
-        result = extract_document(Path(sys.argv[1]))
+        with contextlib.redirect_stdout(sys.stderr):
+            result = extract_document(Path(sys.argv[1]))
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
     except ExtractionError as error:
         print(

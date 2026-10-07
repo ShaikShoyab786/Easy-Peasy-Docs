@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import express, { Router, type IRouter } from "express";
+import express, {
+  Router,
+  type IRouter,
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import { ExtractPdfDocumentResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -49,9 +55,9 @@ function safeFileName(rawFileName: string | undefined): string {
 }
 
 function parsePdfBody(
-  req: Parameters<typeof bodyParser>[0],
-  res: Parameters<typeof bodyParser>[1],
-  next: Parameters<typeof bodyParser>[2],
+  req: Request,
+  res: Response,
+  next: NextFunction,
 ): void {
   bodyParser(req, res, (error?: unknown) => {
     if (!error) {

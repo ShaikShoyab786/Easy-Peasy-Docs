@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useHealthCheck, useSimplifyText, useExtractPdfDocument, getHealthCheckQueryKey } from '@workspace/api-client-react';
 import type { DocumentExtraction } from '@workspace/api-client-react';
@@ -66,7 +66,7 @@ function Home() {
           <div className="flex items-center gap-3 sm:gap-5">
             <Link href="/documents" data-testid="link-create-document" className="group max-w-[138px] text-right leading-tight text-[#42594b] transition-colors hover:text-[#29483d] sm:max-w-none sm:text-left">
               <span className="block text-[11px] font-semibold sm:text-[12px]">Create a simplified document</span>
-              <span className="mt-1 hidden text-[10px] text-[#879087] sm:block">Review extracted text, tables, and images from a PDF</span>
+              <span className="mt-1 block max-w-[132px] text-[8px] leading-[1.35] text-[#879087] sm:max-w-none sm:text-[10px]">Review extracted text, tables, and images from a PDF</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d9d7c9] bg-[#f7f5ec]/75 px-2.5 py-1.5 sm:px-3">
               <span className={`h-1.5 w-1.5 rounded-full ${isServiceReady ? 'bg-[#708d55]' : health.isError ? 'bg-[#b75f4d]' : 'bg-[#c6a54d]'}`} />
@@ -306,7 +306,18 @@ function Documents() {
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const extract = useExtractPdfDocument();
+  const extract = useExtractPdfDocument({
+    request: {
+      headers: selectedFile ? { 'X-File-Name': selectedFile.name } : undefined,
+    },
+  });
+
+  useEffect(() => {
+    if (!selectedFile) return;
+    extract.mutate({ data: selectedFile }, {
+      onSuccess: (response) => setExtraction(response),
+    });
+  }, [selectedFile, extract.mutate]);
 
   function processFile(file?: File) {
     if (!file) return;
@@ -318,9 +329,6 @@ function Documents() {
     setSelectedFile(file);
     setExtraction(null);
     extract.reset();
-    extract.mutate({ data: file }, {
-      onSuccess: (response) => setExtraction(response),
-    });
   }
 
   function onInputChange(event: ChangeEvent<HTMLInputElement>) {
@@ -415,7 +423,7 @@ function Documents() {
                     </div>
                     <h3 className="serif text-[23px] tracking-[-.02em] text-[#38483e]">One document, in view.</h3>
                     <p className="mx-auto mt-2 max-w-[280px] text-[12px] leading-[1.7] text-[#788078]">
-                      Drop a PDF here, or browse your files. The original stays yours.
+                      Drop a PDF here, or browse your files to inspect its contents.
                     </p>
                     <label htmlFor="pdf-upload" className="mt-5 inline-flex min-h-[41px] cursor-pointer items-center justify-center gap-2 rounded-[9px] bg-[#29483d] px-4 text-[11px] font-semibold text-[#f5f5e9] shadow-[0_3px_0_#1c372e] transition-colors hover:bg-[#36584b] focus-within:outline-none focus-within:ring-2 focus-within:ring-[#6d8560]" data-testid="button-choose-pdf">
                       <FileText size={14} strokeWidth={1.7} />
