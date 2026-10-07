@@ -115,6 +115,34 @@
   background: hsl(var(--card));
   box-shadow: var(--shadow-card);
 }
+.document-page {
+  background:
+    radial-gradient(ellipse at 91% 2%, rgba(189, 202, 142, .2), transparent 30rem),
+    hsl(var(--background));
+}
+.drop-zone {
+  border: 1px dashed #aeb8a4;
+  background: rgba(250, 249, 243, .76);
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.drop-zone:hover, .drop-zone.is-dragging {
+  border-color: #557363;
+  background: #f2f4e9;
+}
+.drop-zone.is-dragging { transform: translateY(-2px); }
+.document-block + .document-block { border-top: 1px solid #e8e6dc; }
+.document-table th, .document-table td {
+  border: 1px solid #e4e2d7;
+  padding: .65rem .8rem;
+  text-align: left;
+  vertical-align: top;
+}
+.document-table th {
+  background: #f0f1e8;
+  color: #43564a;
+  font-weight: 600;
+}
+.document-table td { color: #657168; }
 .textarea-reset {
   resize: vertical;
   outline: none;

@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: simplification
     description: Plain-language text generation
+  - name: document-extraction
+    description: PDF text, table, and image extraction
 paths:
   /healthz:
     get:
@@ -63,6 +65,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /documents/extract:
+    post:
+      operationId: extractPdfDocument
+      tags: [document-extraction]
+      summary: Extract reviewable content from a PDF
+      description: Extracts text, tables, and embedded images while excluding index pages, page-number text, and author bylines on the first and last pages.
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Extracted PDF content for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentExtraction"
+        "400":
+          description: The request is not a valid PDF
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: The PDF exceeds processing limits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: The PDF has no extractable text or cannot be processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -103,4 +143,83 @@ components:
           type: string
       required:
         - error
+    DocumentExtraction:
+      type: object
+      properties:
+        fileName:
+          type: string
+        pageCount:
+          type: integer
+        extractedText:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentBlock"
+        summary:
+          $ref: "#/components/schemas/DocumentExtractionSummary"
+      required:
+        - fileName
+        - pageCount
+        - extractedText
+        - blocks
+        - summary
+    DocumentBlock:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [text, table, image]
+        sequence:
+          type: integer
+        pageIndex:
+          type: integer
+          description: Zero-based source position used only to retain block order; never included in extractedText.
+        text:
+          type: string
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+        imageDataUrl:
+          type: string
+          format: uri
+        imageMimeType:
+          type: string
+        imageWidth:
+          type: integer
+        imageHeight:
+          type: integer
+        bbox:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            type: number
+          description: Bounding box in PDF points, retained for future document reconstruction.
+      required:
+        - type
+        - sequence
+        - pageIndex
+    DocumentExtractionSummary:
+      type: object
+      properties:
+        skippedIndexPages:
+          type: integer
+        removedPageNumberLines:
+          type: integer
+        removedAuthorBylines:
+          type: integer
+        imageCount:
+          type: integer
+        tableCount:
+          type: integer
+      required:
+        - skippedIndexPages
+        - removedPageNumberLines
+        - removedAuthorBylines
+        - imageCount
+        - tableCount
 

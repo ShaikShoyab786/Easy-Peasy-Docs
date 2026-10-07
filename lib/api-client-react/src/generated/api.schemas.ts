@@ -31,3 +31,47 @@ export interface ApiError {
   error: string;
 }
 
+export type DocumentBlockType = typeof DocumentBlockType[keyof typeof DocumentBlockType];
+
+
+export const DocumentBlockType = {
+  text: 'text',
+  table: 'table',
+  image: 'image',
+} as const;
+
+export interface DocumentBlock {
+  type: DocumentBlockType;
+  sequence: number;
+  /** Zero-based source position used only to retain block order; never included in extractedText. */
+  pageIndex: number;
+  text?: string;
+  rows?: string[][];
+  imageDataUrl?: string;
+  imageMimeType?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  /**
+     * Bounding box in PDF points, retained for future document reconstruction.
+     * @minItems 4
+     * @maxItems 4
+     */
+  bbox?: number[];
+}
+
+export interface DocumentExtractionSummary {
+  skippedIndexPages: number;
+  removedPageNumberLines: number;
+  removedAuthorBylines: number;
+  imageCount: number;
+  tableCount: number;
+}
+
+export interface DocumentExtraction {
+  fileName: string;
+  pageCount: number;
+  extractedText: string;
+  blocks: DocumentBlock[];
+  summary: DocumentExtractionSummary;
+}
+

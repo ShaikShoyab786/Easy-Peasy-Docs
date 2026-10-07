@@ -21,6 +21,7 @@ import type {
 
 import type {
   ApiError,
+  DocumentExtraction,
   HealthStatus,
   SimplifyInput,
   SimplifyResult
@@ -218,5 +219,94 @@ export const useSimplifyText = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getSimplifyTextMutationOptions(options));
+    }
+
+export const getExtractPdfDocumentUrl = () => {
+
+
+
+
+  return `/api/documents/extract`
+}
+
+/**
+ * Extracts text, tables, and embedded images while excluding index pages, page-number text, and author bylines on the first and last pages.
+ * @summary Extract reviewable content from a PDF
+ */
+export const extractPdfDocument = async (extractPdfDocumentBody: Blob, options?: Parameters<typeof customFetch>[1]): Promise<DocumentExtraction> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<DocumentExtraction>(getExtractPdfDocumentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf', ...getHeaders(options?.headers) },
+    body: extractPdfDocumentBody
+  }
+);}
+
+
+
+
+
+export const getExtractPdfDocumentMutationKey = () => ['extractPdfDocument'] as const;
+
+export const getExtractPdfDocumentMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractPdfDocument>>, TError,ExtractPdfDocumentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof extractPdfDocument>>, TError,ExtractPdfDocumentMutationVariables, TContext> => {
+
+const mutationKey = getExtractPdfDocumentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof extractPdfDocument>>, ExtractPdfDocumentMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  extractPdfDocument(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExtractPdfDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof extractPdfDocument>>>
+    export type ExtractPdfDocumentMutationBody = BodyType<Blob>
+    export type ExtractPdfDocumentMutationError = ErrorType<ApiError>
+    export type ExtractPdfDocumentMutationVariables = {data: BodyType<Blob>}
+
+    /**
+ * @summary Extract reviewable content from a PDF
+ */
+export const useExtractPdfDocument = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractPdfDocument>>, TError,ExtractPdfDocumentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof extractPdfDocument>>,
+        TError,
+        ExtractPdfDocumentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getExtractPdfDocumentMutationOptions(options));
     }
 

@@ -7,6 +7,10 @@
  */
 
 export * from './apiError';
+export * from './documentBlock';
+export * from './documentBlockType';
+export * from './documentExtraction';
+export * from './documentExtractionSummary';
 export * from './healthStatus';
 export * from './simplifyInput';
 export * from './simplifyResult';

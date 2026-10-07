@@ -38,3 +38,38 @@ export const SimplifyTextResponse = zod.object({
 })
 
 
+/**
+ * Extracts text, tables, and embedded images while excluding index pages, page-number text, and author bylines on the first and last pages.
+ * @summary Extract reviewable content from a PDF
+ */
+export const extractPdfDocumentResponseBlocksItemBboxMin = 4;
+export const extractPdfDocumentResponseBlocksItemBboxMax = 4;
+
+
+
+export const ExtractPdfDocumentResponse = zod.object({
+  "fileName": zod.string(),
+  "pageCount": zod.number().int(),
+  "extractedText": zod.string(),
+  "blocks": zod.array(zod.object({
+  "type": zod.enum(['text', 'table', 'image']),
+  "sequence": zod.number().int(),
+  "pageIndex": zod.number().int().describe('Zero-based source position used only to retain block order; never included in extractedText.'),
+  "text": zod.string().optional(),
+  "rows": zod.array(zod.array(zod.string())).optional(),
+  "imageDataUrl": zod.string().url().optional(),
+  "imageMimeType": zod.string().optional(),
+  "imageWidth": zod.number().int().optional(),
+  "imageHeight": zod.number().int().optional(),
+  "bbox": zod.array(zod.number()).min(extractPdfDocumentResponseBlocksItemBboxMin).max(extractPdfDocumentResponseBlocksItemBboxMax).optional().describe('Bounding box in PDF points, retained for future document reconstruction.')
+})),
+  "summary": zod.object({
+  "skippedIndexPages": zod.number().int(),
+  "removedPageNumberLines": zod.number().int(),
+  "removedAuthorBylines": zod.number().int(),
+  "imageCount": zod.number().int(),
+  "tableCount": zod.number().int()
+})
+})
+
+
