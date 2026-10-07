@@ -1,0 +1,33 @@
+"Build or update the web application to be named Easy Peasy Docs. Completely redesign the visual identity, text hierarchy, typography, and layout to look like a high-end, bold, and modern SaaS product—strictly avoiding any tiny or boring text.
+
+1. App Branding & Identity:
+
+App Name in Header: Easy Peasy Docs (with a clean, modern logo badge).
+
+Color Palette: Use a professional and high-end theme (crisp background, dark slate/charcoal text for high readability, and a striking Electric Indigo / Deep Royal Blue (#4F46E5) or Vibrant Teal accent for buttons and active states).
+
+Cards & Layout: Style the two-column split screen (Source document vs Layman-language result) with soft drop shadows (shadow-xl) and clean borders so they pop out nicely.
+
+2. Exact Typography & Content (Must be bold, large, and prominent):
+
+Top Sub-heading / Tagline: MAKE IT EASY PEASY
+
+Main Hero Heading: Policies simplified, in seconds. (Make this massive and bold, e.g., text-5xl or text-6xl using clean Sans-Serif fonts like Outfit or Plus Jakarta Sans).
+
+Description Text: Upload heavy corporate or government documents and watch the AI rewrite them into plain, easy-to-understand language. No emojis, no fluff, just pure clarity. (Make text size medium-to-large, never small).
+
+Box 01 Label (Left Side): 01 Source Document
+
+Box 02 Label (Right Side): 02 Easy Layman Language Output
+
+3. Core Features & Functionality:
+
+Document Upload & Input: Allow users to paste or upload corporate/government policy documents (PDF or TXT).
+
+Grok API Integration: Connect to the xAI Grok API ([https://api.x.ai/v1](https://api.x.ai/v1)) using the environment variable XAI_API_KEY.
+
+Simplification Engine: Send the text to Grok to rewrite it into a complete, professional, layman-language document with real-world examples and old-vs-new comparisons.
+
+Strict Constraints: Absolutely NO emojis, icons, or decorative symbols in the AI output. Use clean professional headings and bullet points.
+
+Action Buttons: The 'Generate' button must be solid, high-visibility, and styled with a professional accent color. Include a 'Copy to Clipboard' button on the results screen."
