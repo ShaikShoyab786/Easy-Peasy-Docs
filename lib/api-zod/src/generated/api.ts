@@ -21,7 +21,7 @@ export const HealthCheckResponse = zod.object({
  * Rewrites the supplied text using the user's plain-language prompt.
  * @summary Simplify pasted text with Grok
  */
-export const simplifyTextBodySourceTextMax = 60000;
+export const simplifyTextBodySourceTextMax = 100000;
 
 export const simplifyTextBodyPromptMax = 2000;
 

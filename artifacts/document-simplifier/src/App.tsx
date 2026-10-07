@@ -8,6 +8,7 @@ import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument
 
 const queryClient = new QueryClient();
 const DEFAULT_PROMPT = 'Please explain the above in easy layman language with examples';
+const PDF_SIMPLIFICATION_CHARACTER_LIMIT = 100_000;
 
 function Home() {
   const [sourceText, setSourceText] = useState('');
@@ -363,7 +364,7 @@ function Documents() {
   const hasContent = !!extraction && (blocks.length > 0 || extraction.extractedText.length > 0);
   const serialized = useMemo(() => extraction ? serializeExtraction(extraction) : null, [extraction]);
   const sourceLength = serialized?.sourceText.length ?? 0;
-  const isSourceOverLimit = sourceLength > 60_000;
+  const isSourceOverLimit = sourceLength > PDF_SIMPLIFICATION_CHARACTER_LIMIT;
   const canSimplify = hasContent && sourceLength > 0 && !isSourceOverLimit && !simplify.isPending;
 
   function generateDocument() {
@@ -565,11 +566,11 @@ function Documents() {
                     </p>
                     <div className="mt-4 flex items-center justify-between border-t border-[#ebe9df] pt-3">
                       <span className="mono text-[9px] uppercase tracking-[.11em] text-[#8a9187]">Prepared model source</span>
-                      <span className="mono text-[10px] tabular-nums text-[#758073]" data-testid="text-model-source-count">{sourceLength.toLocaleString()} / 60,000</span>
+                      <span className="mono text-[10px] tabular-nums text-[#758073]" data-testid="text-model-source-count">{sourceLength.toLocaleString()} / {PDF_SIMPLIFICATION_CHARACTER_LIMIT.toLocaleString()}</span>
                     </div>
                     {isSourceOverLimit && (
                       <p className="mt-3 rounded-[9px] border border-[#ead5c9] bg-[#faf1eb] px-3.5 py-3 text-[11px] leading-[1.65] text-[#995c4b]" role="alert" data-testid="status-source-too-long">
-                        This PDF prepares {sourceLength.toLocaleString()} characters, above the 60,000-character limit. Choose a shorter PDF or split the document and upload one part at a time.
+                        This PDF prepares {sourceLength.toLocaleString()} characters, above the {PDF_SIMPLIFICATION_CHARACTER_LIMIT.toLocaleString()}-character limit. Choose a shorter PDF or split the document and upload one part at a time.
                       </p>
                     )}
                     <button

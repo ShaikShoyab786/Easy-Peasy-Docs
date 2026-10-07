@@ -9,7 +9,7 @@
 export interface SimplifyInput {
   /**
      * @minLength 1
-     * @maxLength 60000
+     * @maxLength 100000
      */
   sourceText: string;
   /**
