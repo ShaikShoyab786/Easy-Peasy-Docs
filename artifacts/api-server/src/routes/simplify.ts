@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
 import { SimplifyTextBody, SimplifyTextResponse } from "@workspace/api-zod";
+import { ReplitConnectors } from "@replit/connectors-sdk";
 
 const router: IRouter = Router();
-const GROK_MODEL = "grok-4.7";
+const connectors = new ReplitConnectors();
 
 type JsonRecord = Record<string, unknown>;
 
@@ -37,6 +38,98 @@ function extractOutputText(payload: unknown): string | null {
   return result.length > 0 ? result : null;
 }
 
+function modelVersion(id: string): number[] {
+  const match = id.match(/^grok-(\d+(?:\.\d+)?)/i);
+  return match
+    ? match[1].split(".").map((part) => Number.parseInt(part, 10))
+    : [];
+}
+
+type ModelDiscovery = {
+  model: string | null;
+  upstreamStatus?: number;
+  upstreamMessage?: string;
+  responseKeys?: string[];
+  advertisedModels?: string[];
+};
+
+async function discoverGrokModel(): Promise<ModelDiscovery> {
+  const response = await connectors.proxy("xai", "/v1/models", {
+    method: "GET",
+  });
+  if (!response.ok) {
+    const failurePayload: unknown = await response.json().catch(() => null);
+    const error = isRecord(failurePayload) ? failurePayload.error : null;
+    const nestedError = isRecord(error) ? error : null;
+    const message =
+      typeof error === "string"
+        ? error
+        : nestedError && typeof nestedError.message === "string"
+          ? nestedError.message
+          : isRecord(failurePayload) &&
+              typeof failurePayload.message === "string"
+            ? failurePayload.message
+            : isRecord(failurePayload) &&
+                typeof failurePayload.detail === "string"
+              ? failurePayload.detail
+              : undefined;
+
+    return {
+      model: null,
+      upstreamStatus: response.status,
+      upstreamMessage: message?.slice(0, 300),
+    };
+  }
+
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !Array.isArray(payload.data)) {
+    return {
+      model: null,
+      responseKeys: isRecord(payload) ? Object.keys(payload) : [],
+    };
+  }
+
+  const models = payload.data.filter(
+    (item): item is JsonRecord =>
+      isRecord(item) &&
+      typeof item.id === "string" &&
+      item.id.toLowerCase().startsWith("grok-") &&
+      !/(image|imagine|video|voice)/i.test(item.id),
+  );
+
+  const latestAliasModels = models.filter(
+    (model) =>
+      Array.isArray(model.aliases) &&
+      model.aliases.some(
+        (alias) => typeof alias === "string" && alias.endsWith("-latest"),
+      ),
+  );
+  const candidates = latestAliasModels.length > 0 ? latestAliasModels : models;
+  candidates.sort((left, right) => {
+    const leftVersion = modelVersion(String(left.id));
+    const rightVersion = modelVersion(String(right.id));
+
+    for (let index = 0; index < Math.max(leftVersion.length, rightVersion.length); index += 1) {
+      const difference = (rightVersion[index] ?? 0) - (leftVersion[index] ?? 0);
+      if (difference !== 0) {
+        return difference;
+      }
+    }
+
+    return 0;
+  });
+
+  const model =
+    typeof candidates[0]?.id === "string" ? candidates[0].id : null;
+
+  return {
+    model,
+    advertisedModels: models
+      .slice(0, 10)
+      .map((item) => (typeof item.id === "string" ? item.id : "unknown")),
+  };
+}
+
 router.post("/simplify", async (req, res): Promise<void> => {
   const parsed = SimplifyTextBody.safeParse(req.body);
   if (!parsed.success) {
@@ -50,53 +143,41 @@ router.post("/simplify", async (req, res): Promise<void> => {
     return;
   }
 
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) {
-    res.status(503).json({ error: "The Grok API key is not configured." });
-    return;
-  }
-
   try {
-    const upstream = await fetch("https://api.x.ai/v1/responses", {
+    const discovery = await discoverGrokModel();
+    if (!discovery.model) {
+      req.log.warn(
+        {
+          upstreamStatus: discovery.upstreamStatus,
+          upstreamMessage: discovery.upstreamMessage,
+          responseKeys: discovery.responseKeys,
+          advertisedModels: discovery.advertisedModels,
+        },
+        "Could not discover a Grok text model",
+      );
+      res.status(503).json({
+        error:
+          discovery.upstreamMessage &&
+          /incorrect api key|invalid api key/i.test(discovery.upstreamMessage)
+            ? "The xAI connection rejected its API key. Update it in Replit Integrations and try again."
+            : "No Grok text model is available through the xAI connection.",
+      });
+      return;
+    }
+    const model = discovery.model;
+
+    const upstream = await connectors.proxy("xai", "/v1/responses", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: GROK_MODEL,
+      body: {
+        model,
         input: `${sourceText}\n\n${prompt}`,
         store: false,
-      }),
-      signal: AbortSignal.timeout(90_000),
+      },
     });
 
     if (!upstream.ok) {
-      const failurePayload: unknown = await upstream.json().catch(() => null);
-      const errorDetails = isRecord(failurePayload) ? failurePayload.error : null;
-      const nestedError = isRecord(errorDetails) ? errorDetails : null;
-      const upstreamMessage =
-        typeof errorDetails === "string"
-          ? errorDetails
-          : nestedError && typeof nestedError.message === "string"
-            ? nestedError.message
-            : isRecord(failurePayload) &&
-                typeof failurePayload.message === "string"
-              ? failurePayload.message
-              : isRecord(failurePayload) &&
-                  typeof failurePayload.detail === "string"
-                ? failurePayload.detail
-                : undefined;
-
       req.log.warn(
-        {
-          upstreamStatus: upstream.status,
-          upstreamCode:
-            nestedError && typeof nestedError.code === "string"
-              ? nestedError.code
-              : undefined,
-          upstreamMessage: upstreamMessage?.slice(0, 300),
-        },
+        { upstreamStatus: upstream.status },
         "Grok API returned an unsuccessful response",
       );
 
@@ -109,7 +190,7 @@ router.post("/simplify", async (req, res): Promise<void> => {
 
       if (upstream.status === 401 || upstream.status === 403) {
         res.status(502).json({
-          error: "Grok could not authenticate the request. Check the xAI API key.",
+          error: "The xAI connection needs attention. Reconnect it and try again.",
         });
         return;
       }
@@ -130,7 +211,7 @@ router.post("/simplify", async (req, res): Promise<void> => {
       return;
     }
 
-    res.json(SimplifyTextResponse.parse({ result, model: GROK_MODEL }));
+    res.json(SimplifyTextResponse.parse({ result, model }));
   } catch (error) {
     req.log.error({ err: error }, "Grok API request failed");
 

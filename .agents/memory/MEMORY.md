@@ -1,0 +1,1 @@
+- [Plain Language Lab scope](plain-language-lab-scope.md) — the first release is paste-and-review; PDF extraction and source-grounded Q&A are later scope.
