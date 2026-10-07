@@ -12,4 +12,8 @@ export interface DocumentExtractionSummary {
   removedAuthorBylines: number;
   imageCount: number;
   tableCount: number;
+  ocrPageCount: number;
+  ocrLineCount: number;
+  lowConfidenceOcrLines: number;
+  ocrFailedPageCount: number;
 }

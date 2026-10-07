@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { DocumentTable } from './documentTable';
 
 export interface SimplifyInput {
   /**
@@ -17,4 +18,8 @@ export interface SimplifyInput {
      * @maxLength 2000
      */
   prompt: string;
+  /** Processes PDF content in ordered chunks and returns rewritten tables separately. */
+  documentMode?: boolean;
+  /** @maxItems 150 */
+  tables?: DocumentTable[];
 }

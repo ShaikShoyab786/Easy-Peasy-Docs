@@ -11,6 +11,7 @@ export * from './documentBlock';
 export * from './documentBlockType';
 export * from './documentExtraction';
 export * from './documentExtractionSummary';
+export * from './documentTable';
 export * from './healthStatus';
 export * from './simplifyInput';
 export * from './simplifyResult';

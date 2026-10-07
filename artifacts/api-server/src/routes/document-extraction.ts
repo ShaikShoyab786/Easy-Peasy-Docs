@@ -155,7 +155,7 @@ router.post(
 
       req.log.error({ err: error }, "PDF extraction failed");
       res.status(422).json({
-        error: "This PDF could not be processed. Try another text-based PDF.",
+        error: "This PDF could not be processed. Try another PDF.",
       });
     } finally {
       if (temporaryDirectory) {

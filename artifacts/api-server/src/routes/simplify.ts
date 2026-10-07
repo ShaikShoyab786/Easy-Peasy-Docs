@@ -1,5 +1,9 @@
 import { Router, type IRouter } from "express";
 import { SimplifyTextBody, SimplifyTextResponse } from "@workspace/api-zod";
+import {
+  DocumentSimplificationError,
+  simplifyDocumentInChunks,
+} from "../lib/document-simplifier";
 
 const router: IRouter = Router();
 const XAI_API_BASE = "https://api.x.ai/v1";
@@ -187,6 +191,35 @@ router.post("/simplify", async (req, res): Promise<void> => {
       return;
     }
     const model = discovery.model;
+
+    if (parsed.data.documentMode) {
+      try {
+        const documentResult = await simplifyDocumentInChunks({
+          apiKey,
+          model,
+          sourceText,
+          prompt,
+          tables: parsed.data.tables ?? [],
+        });
+        res.json(
+          SimplifyTextResponse.parse({
+            ...documentResult,
+            model,
+          }),
+        );
+      } catch (error) {
+        if (error instanceof DocumentSimplificationError) {
+          req.log.warn(
+            { statusCode: error.statusCode },
+            "PDF simplification could not produce a complete safe result",
+          );
+          res.status(error.statusCode).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
 
     const upstream = await fetch(`${XAI_API_BASE}/responses`, {
       method: "POST",

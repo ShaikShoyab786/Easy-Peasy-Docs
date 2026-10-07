@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useHealthCheck, useSimplifyText, useExtractPdfDocument, getHealthCheckQueryKey } from '@workspace/api-client-react';
-import type { DocumentExtraction } from '@workspace/api-client-react';
+import type { DocumentExtraction, SimplifyResult } from '@workspace/api-client-react';
 import { ArrowDown, ArrowRight, Check, Clipboard, FileText, RotateCcw, Sparkles, X, Upload, FileSearch, Image as ImageIcon, Table2, ChevronRight } from 'lucide-react';
 import { Link, Route, Switch } from 'wouter';
 import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument } from './document-simplification';
@@ -90,7 +90,7 @@ function Home() {
                 Policies simplified,<br className="hidden sm:block" /> in seconds.
               </h1>
               <p className="mt-4 max-w-[445px] text-[14px] leading-[1.7] text-[#68746c]">
-                Paste a policy to generate a plain-language rewrite, or inspect a text-based PDF in the review workspace. No emojis, no fluff, just pure clarity.
+                Paste a policy to generate a plain-language rewrite, or simplify a PDF in the review workspace. No emojis, no fluff, just pure clarity.
               </p>
             </div>
             <div className="hidden min-w-[186px] items-center gap-3 pb-1 sm:flex">
@@ -307,7 +307,7 @@ function Documents() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState('');
-  const [simplifiedResult, setSimplifiedResult] = useState<{ result: string; model: string } | null>(null);
+  const [simplifiedResult, setSimplifiedResult] = useState<SimplifyResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const simplificationRequestId = useRef(0);
   const simplify = useSimplifyText();
@@ -327,7 +327,7 @@ function Documents() {
   function processFile(file?: File) {
     if (!file) return;
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      setFileError('Choose a PDF file to continue. Only text-based PDFs are supported.');
+      setFileError('Choose a PDF file to continue.');
       return;
     }
     setFileError('');
@@ -363,7 +363,7 @@ function Documents() {
   const blocks = extraction?.blocks ?? [];
   const hasContent = !!extraction && (blocks.length > 0 || extraction.extractedText.length > 0);
   const serialized = useMemo(() => extraction ? serializeExtraction(extraction) : null, [extraction]);
-  const sourceLength = serialized?.sourceText.length ?? 0;
+  const sourceLength = serialized?.sourceLength ?? 0;
   const isSourceOverLimit = sourceLength > PDF_SIMPLIFICATION_CHARACTER_LIMIT;
   const canSimplify = hasContent && sourceLength > 0 && !isSourceOverLimit && !simplify.isPending;
 
@@ -372,7 +372,12 @@ function Documents() {
     const requestId = ++simplificationRequestId.current;
     setSimplifiedResult(null);
     simplify.mutate(
-      { data: { sourceText: serialized.sourceText, prompt: DOCUMENT_SIMPLIFICATION_PROMPT } },
+      { data: {
+        sourceText: serialized.sourceText,
+        prompt: DOCUMENT_SIMPLIFICATION_PROMPT,
+        documentMode: true,
+        tables: serialized.tables,
+      } },
       {
         onSuccess: (response) => {
           if (requestId === simplificationRequestId.current) setSimplifiedResult(response);
@@ -410,7 +415,7 @@ function Documents() {
                 See what your<br className="hidden sm:block" /> PDF contains.
               </h1>
               <p className="mt-4 max-w-[510px] text-[14px] leading-[1.7] text-[#68746c]">
-                Upload a text-based PDF to review extracted text, tables, embedded images, and source pages.
+                Upload a PDF to review extracted text, tables, embedded images, and source pages. English text in scans and images is read with OCR.
               </p>
             </div>
             <div className="hidden min-w-[190px] items-center gap-3 pb-1 sm:flex">
@@ -445,7 +450,7 @@ function Documents() {
                       onChange={onInputChange}
                       className="sr-only"
                       data-testid="input-pdf"
-                      aria-label="Choose a text-based PDF"
+                      aria-label="Choose a PDF"
                     />
                     <div className="mx-auto mb-4 grid h-[52px] w-[52px] place-items-center rounded-full border border-[#d9ddcf] bg-[#f3f4eb] text-[#526d5c]">
                       <Upload size={20} strokeWidth={1.6} />
@@ -458,7 +463,7 @@ function Documents() {
                       <FileText size={14} strokeWidth={1.7} />
                       Choose PDF
                     </label>
-                    <div className="mono mt-5 text-[9px] uppercase tracking-[.13em] text-[#9a9f94]">PDF only · Text-based documents</div>
+                    <div className="mono mt-5 text-[9px] uppercase tracking-[.13em] text-[#9a9f94]">PDF only · English OCR for scans and images</div>
                   </div>
                   {selectedFile && extract.isPending && (
                     <div className="mt-4 flex items-center gap-3 rounded-[10px] border border-[#e2e2d7] bg-[#f7f7ef] px-3.5 py-3" role="status" data-testid="status-extracting">
@@ -473,7 +478,7 @@ function Documents() {
                   {extract.isError && (
                     <div className="mt-4 rounded-[10px] border border-[#ead5c9] bg-[#faf1eb] p-4" role="alert" data-testid="status-extraction-error">
                       <div className="text-[12px] font-semibold text-[#8f5545]">We couldn’t read this PDF.</div>
-                      <p className="mt-1 text-[11px] leading-[1.6] text-[#956c5d]">{extract.error instanceof Error ? extract.error.message : 'Try another text-based PDF.'}</p>
+                      <p className="mt-1 text-[11px] leading-[1.6] text-[#956c5d]">{extract.error instanceof Error ? extract.error.message : 'Try another PDF.'}</p>
                       <label htmlFor="pdf-upload" className="mt-3 inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-[#526d5c] hover:text-[#29483d]" data-testid="button-retry-upload">
                         Choose another file <ChevronRight size={13} />
                       </label>
@@ -482,7 +487,7 @@ function Documents() {
                 </div>
                 <div className="border-t border-[#e3e1d6] bg-[#f5f3eb] px-5 py-4 sm:px-6">
                   <div className="mono mb-2 text-[9px] uppercase tracking-[.14em] text-[#858d82]">What happens here</div>
-                  <p className="text-[11px] leading-[1.7] text-[#737d73]">We extract the document’s existing text, tables, and embedded images for your review. Nothing is rewritten, and scanned-image OCR is not included.</p>
+                  <p className="text-[11px] leading-[1.7] text-[#737d73]">We extract selectable text, recognize English text in scans and images with OCR, and keep the source pages available for review.</p>
                 </div>
               </article>
 
@@ -524,7 +529,7 @@ function Documents() {
                 </button>
               </div>
 
-              <div className="mb-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <div className="mb-5 grid grid-cols-2 gap-2.5 sm:grid-cols-5">
                 <div className="rounded-[11px] border border-[#e0dfd4] bg-[#f8f7f0] px-3.5 py-3">
                   <div className="mono text-[9px] uppercase tracking-[.1em] text-[#90968b]">Pages omitted</div>
                   <div className="mt-1.5 text-[19px] font-semibold tracking-[-.04em] text-[#425348]" data-testid="count-skipped-pages">{extraction.summary.skippedIndexPages}</div>
@@ -549,7 +554,19 @@ function Documents() {
                   </div>
                   <div className="text-[10px] text-[#8a9187]">Found in source</div>
                 </div>
+                <div className="rounded-[11px] border border-[#e0dfd4] bg-[#f8f7f0] px-3.5 py-3">
+                  <div className="mono text-[9px] uppercase tracking-[.1em] text-[#90968b]">OCR pages</div>
+                  <div className="mt-1.5 text-[19px] font-semibold tracking-[-.04em] text-[#425348]" data-testid="count-ocr-pages">{extraction.summary.ocrPageCount}</div>
+                  <div className="text-[10px] text-[#8a9187]">English text recognized from images</div>
+                </div>
               </div>
+              {(extraction.summary.lowConfidenceOcrLines > 0 || extraction.summary.ocrFailedPageCount > 0) && (
+                <p className="mb-5 rounded-[9px] border border-[#ead5c9] bg-[#faf1eb] px-3.5 py-3 text-[11px] leading-[1.65] text-[#995c4b]" role="status" data-testid="status-ocr-review">
+                  {extraction.summary.lowConfidenceOcrLines > 0 && `${extraction.summary.lowConfidenceOcrLines} OCR line(s) have low recognition confidence; compare them with the source page.`}
+                  {extraction.summary.lowConfidenceOcrLines > 0 && extraction.summary.ocrFailedPageCount > 0 && ' '}
+                  {extraction.summary.ocrFailedPageCount > 0 && `OCR could not read content on ${extraction.summary.ocrFailedPageCount} page(s); review those source pages manually.`}
+                </p>
+              )}
 
               <section className="mb-5 grid items-stretch gap-5 lg:grid-cols-[minmax(0,.72fr)_minmax(0,1.28fr)]" aria-label="PDF simplification" data-testid="section-pdf-simplification">
                 <article className="panel flex flex-col overflow-hidden rounded-[17px]">
@@ -634,7 +651,12 @@ function Documents() {
                           <span className="mono flex items-center gap-2 text-[9px] uppercase tracking-[.13em] text-[#829079]"><Check size={12} /> Plain-language version</span>
                           <span className="mono max-w-[52%] truncate text-[9px] tracking-[.04em] text-[#a0a397]" title={simplifiedResult.model} data-testid="text-simplification-model">{simplifiedResult.model}</span>
                         </div>
-                        <SimplifiedDocument content={simplifiedResult.result} elements={serialized?.elements ?? {}} />
+                        <SimplifiedDocument
+                          content={simplifiedResult.result}
+                          elements={serialized?.elements ?? {}}
+                          tables={simplifiedResult.tables ?? []}
+                          unchangedTables={simplifiedResult.unchangedTables ?? []}
+                        />
                       </>
                     ) : (
                       <div className="flex flex-1 flex-col items-center justify-center py-8 text-center" data-testid="empty-simplified-document">
@@ -671,7 +693,15 @@ function Documents() {
                             <span className="grid h-6 w-6 place-items-center rounded-[7px] bg-[#f0f1e8] text-[#70806f]">
                               {block.type === 'table' ? <Table2 size={13} /> : block.type === 'image' ? <ImageIcon size={13} /> : <FileText size={13} />}
                             </span>
-                            <span className="mono text-[9px] uppercase tracking-[.12em] text-[#818b80]">{block.type} · {String(block.sequence).padStart(2, '0')}</span>
+                          <span className="mono text-[9px] uppercase tracking-[.12em] text-[#818b80]">{block.type} · {String(block.sequence).padStart(2, '0')}</span>
+                          {block.type === 'text' && block.isOcr && (
+                            <span
+                              className={`mono rounded-full px-2 py-1 text-[8px] uppercase tracking-[.08em] ${block.lowConfidenceOcr ? 'bg-[#fae8df] text-[#9c604e]' : 'bg-[#eef1e7] text-[#6d8066]'}`}
+                              data-testid={`badge-ocr-confidence-${index}`}
+                            >
+                              OCR · {Math.round(block.ocrConfidence ?? 0)}%
+                            </span>
+                          )}
                           </div>
                           <span className="mono shrink-0 text-[9px] uppercase tracking-[.08em] text-[#9a9e92]">Page {block.pageIndex + 1}</span>
                         </div>
@@ -700,7 +730,7 @@ function Documents() {
                     {!hasContent && (
                       <div className="px-6 py-14 text-center" data-testid="empty-extracted-content">
                         <div className="serif text-[22px] text-[#46564a]">No readable content found.</div>
-                        <p className="mx-auto mt-2 max-w-[330px] text-[12px] leading-[1.7] text-[#8b9187]">This file may contain scanned pages. Image-based OCR is not part of this preview.</p>
+                      <p className="mx-auto mt-2 max-w-[330px] text-[12px] leading-[1.7] text-[#8b9187]">No readable text, tables, or images were found.</p>
                       </div>
                     )}
                   </div>
@@ -712,11 +742,11 @@ function Documents() {
                   <p className="mt-2 text-[11px] leading-[1.75] text-[#737d73]">Items are shown in the order they were found. Page references help you compare each part with the original PDF.</p>
                   <div className="my-4 h-px bg-[#e8e6dc]" />
                   <ul className="space-y-3 text-[11px] leading-[1.6] text-[#768076]">
-                    <li className="flex gap-2.5"><FileText size={14} className="mt-0.5 shrink-0 text-[#788874]" /><span>Text is extracted as readable content.</span></li>
-                    <li className="flex gap-2.5"><Table2 size={14} className="mt-0.5 shrink-0 text-[#788874]" /><span>Tables preserve their rows and cells.</span></li>
+                    <li className="flex gap-2.5"><FileText size={14} className="mt-0.5 shrink-0 text-[#788874]" /><span>Selectable text and English text from scans and images are included; OCR confidence is shown for recognized lines.</span></li>
+                    <li className="flex gap-2.5"><Table2 size={14} className="mt-0.5 shrink-0 text-[#788874]" /><span>Tables are rewritten in simpler words while values and row structure are checked.</span></li>
                     <li className="flex gap-2.5"><ImageIcon size={14} className="mt-0.5 shrink-0 text-[#788874]" /><span>Embedded images appear when available.</span></li>
                   </ul>
-                  <div className="mt-5 rounded-[9px] bg-[#f1f2e9] px-3 py-3 text-[10px] leading-[1.65] text-[#758073]">This is an extraction preview only. No rewriting or document export happens here.</div>
+                  <div className="mt-5 rounded-[9px] bg-[#f1f2e9] px-3 py-3 text-[10px] leading-[1.65] text-[#758073]">The original extraction remains available below the separate simplified document.</div>
                 </aside>
               </div>
             </section>

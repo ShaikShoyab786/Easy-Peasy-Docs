@@ -9,6 +9,12 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface DocumentTable {
+  /** @pattern ^\[\[SOURCE_TABLE_\d+\]\]$ */
+  token: string;
+  rows: string[][];
+}
+
 export interface SimplifyInput {
   /**
      * @minLength 1
@@ -20,11 +26,17 @@ export interface SimplifyInput {
      * @maxLength 2000
      */
   prompt: string;
+  /** Processes PDF content in ordered chunks and returns rewritten tables separately. */
+  documentMode?: boolean;
+  /** @maxItems 150 */
+  tables?: DocumentTable[];
 }
 
 export interface SimplifyResult {
   result: string;
   model: string;
+  tables?: DocumentTable[];
+  unchangedTables?: string[];
 }
 
 export interface ApiError {
@@ -51,6 +63,15 @@ export interface DocumentBlock {
   imageMimeType?: string;
   imageWidth?: number;
   imageHeight?: number;
+  /** True when the text block was recognized from a scanned page or embedded image. */
+  isOcr?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  ocrConfidence?: number;
+  /** True when OCR confidence is below the review threshold. */
+  lowConfidenceOcr?: boolean;
   /**
      * Bounding box in PDF points, retained for future document reconstruction.
      * @minItems 4
@@ -65,6 +86,10 @@ export interface DocumentExtractionSummary {
   removedAuthorBylines: number;
   imageCount: number;
   tableCount: number;
+  ocrPageCount: number;
+  ocrLineCount: number;
+  lowConfidenceOcrLines: number;
+  ocrFailedPageCount: number;
 }
 
 export interface DocumentExtraction {

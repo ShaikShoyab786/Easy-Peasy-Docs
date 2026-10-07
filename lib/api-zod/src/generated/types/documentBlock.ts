@@ -18,6 +18,15 @@ export interface DocumentBlock {
   imageMimeType?: string;
   imageWidth?: number;
   imageHeight?: number;
+  /** True when the text block was recognized from a scanned page or embedded image. */
+  isOcr?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  ocrConfidence?: number;
+  /** True when OCR confidence is below the review threshold. */
+  lowConfidenceOcr?: boolean;
   /**
      * Bounding box in PDF points, retained for future document reconstruction.
      * @minItems 4

@@ -53,6 +53,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "413":
+          description: Prepared PDF content exceeds the character limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "502":
           description: The Grok API returned an error
           content:
@@ -70,7 +76,7 @@ paths:
       operationId: extractPdfDocument
       tags: [document-extraction]
       summary: Extract reviewable content from a PDF
-      description: Extracts text, tables, and embedded images while excluding index pages, page-number text, and author bylines on the first and last pages.
+      description: Extracts selectable text, OCR text from scans and embedded images, tables, and image previews while excluding index pages, page-number text, and author bylines on the first and last pages.
       requestBody:
         required: true
         content:
@@ -98,7 +104,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "422":
-          description: The PDF has no extractable text or cannot be processed
+          description: The PDF has no readable content or cannot be processed
           content:
             application/json:
               schema:
@@ -123,6 +129,14 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
+        documentMode:
+          type: boolean
+          description: Processes PDF content in ordered chunks and returns rewritten tables separately.
+        tables:
+          type: array
+          maxItems: 150
+          items:
+            $ref: "#/components/schemas/DocumentTable"
       required:
         - sourceText
         - prompt
@@ -133,9 +147,32 @@ components:
           type: string
         model:
           type: string
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentTable"
+        unchangedTables:
+          type: array
+          items:
+            type: string
       required:
         - result
         - model
+    DocumentTable:
+      type: object
+      properties:
+        token:
+          type: string
+          pattern: "^\\[\\[SOURCE_TABLE_\\d+\\]\\]$"
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+      required:
+        - token
+        - rows
     ApiError:
       type: object
       properties:
@@ -192,6 +229,16 @@ components:
           type: integer
         imageHeight:
           type: integer
+        isOcr:
+          type: boolean
+          description: True when the text block was recognized from a scanned page or embedded image.
+        ocrConfidence:
+          type: number
+          minimum: 0
+          maximum: 100
+        lowConfidenceOcr:
+          type: boolean
+          description: True when OCR confidence is below the review threshold.
         bbox:
           type: array
           minItems: 4
@@ -216,10 +263,22 @@ components:
           type: integer
         tableCount:
           type: integer
+        ocrPageCount:
+          type: integer
+        ocrLineCount:
+          type: integer
+        lowConfidenceOcrLines:
+          type: integer
+        ocrFailedPageCount:
+          type: integer
       required:
         - skippedIndexPages
         - removedPageNumberLines
         - removedAuthorBylines
         - imageCount
         - tableCount
+        - ocrPageCount
+        - ocrLineCount
+        - lowConfidenceOcrLines
+        - ocrFailedPageCount
 

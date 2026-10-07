@@ -25,23 +25,42 @@ export const simplifyTextBodySourceTextMax = 100000;
 
 export const simplifyTextBodyPromptMax = 2000;
 
+export const simplifyTextBodyTablesItemTokenRegExp = new RegExp('^\\[\\[SOURCE_TABLE_\\d+\\]\\]$');
+export const simplifyTextBodyTablesMax = 150;
+
 
 
 export const SimplifyTextBody = zod.object({
   "sourceText": zod.string().min(1).max(simplifyTextBodySourceTextMax),
-  "prompt": zod.string().min(1).max(simplifyTextBodyPromptMax)
+  "prompt": zod.string().min(1).max(simplifyTextBodyPromptMax),
+  "documentMode": zod.boolean().optional().describe('Processes PDF content in ordered chunks and returns rewritten tables separately.'),
+  "tables": zod.array(zod.object({
+  "token": zod.string().regex(simplifyTextBodyTablesItemTokenRegExp),
+  "rows": zod.array(zod.array(zod.string()))
+})).max(simplifyTextBodyTablesMax).optional()
 })
+
+export const simplifyTextResponseTablesItemTokenRegExp = new RegExp('^\\[\\[SOURCE_TABLE_\\d+\\]\\]$');
+
 
 export const SimplifyTextResponse = zod.object({
   "result": zod.string(),
-  "model": zod.string()
+  "model": zod.string(),
+  "tables": zod.array(zod.object({
+  "token": zod.string().regex(simplifyTextResponseTablesItemTokenRegExp),
+  "rows": zod.array(zod.array(zod.string()))
+})).optional(),
+  "unchangedTables": zod.array(zod.string()).optional()
 })
 
 
 /**
- * Extracts text, tables, and embedded images while excluding index pages, page-number text, and author bylines on the first and last pages.
+ * Extracts selectable text, OCR text from scans and embedded images, tables, and image previews while excluding index pages, page-number text, and author bylines on the first and last pages.
  * @summary Extract reviewable content from a PDF
  */
+export const extractPdfDocumentResponseBlocksItemOcrConfidenceMin = 0;
+export const extractPdfDocumentResponseBlocksItemOcrConfidenceMax = 100;
+
 export const extractPdfDocumentResponseBlocksItemBboxMin = 4;
 export const extractPdfDocumentResponseBlocksItemBboxMax = 4;
 
@@ -61,6 +80,9 @@ export const ExtractPdfDocumentResponse = zod.object({
   "imageMimeType": zod.string().optional(),
   "imageWidth": zod.number().int().optional(),
   "imageHeight": zod.number().int().optional(),
+  "isOcr": zod.boolean().optional().describe('True when the text block was recognized from a scanned page or embedded image.'),
+  "ocrConfidence": zod.number().min(extractPdfDocumentResponseBlocksItemOcrConfidenceMin).max(extractPdfDocumentResponseBlocksItemOcrConfidenceMax).optional(),
+  "lowConfidenceOcr": zod.boolean().optional().describe('True when OCR confidence is below the review threshold.'),
   "bbox": zod.array(zod.number()).min(extractPdfDocumentResponseBlocksItemBboxMin).max(extractPdfDocumentResponseBlocksItemBboxMax).optional().describe('Bounding box in PDF points, retained for future document reconstruction.')
 })),
   "summary": zod.object({
@@ -68,7 +90,11 @@ export const ExtractPdfDocumentResponse = zod.object({
   "removedPageNumberLines": zod.number().int(),
   "removedAuthorBylines": zod.number().int(),
   "imageCount": zod.number().int(),
-  "tableCount": zod.number().int()
+  "tableCount": zod.number().int(),
+  "ocrPageCount": zod.number().int(),
+  "ocrLineCount": zod.number().int(),
+  "lowConfidenceOcrLines": zod.number().int(),
+  "ocrFailedPageCount": zod.number().int()
 })
 })
 

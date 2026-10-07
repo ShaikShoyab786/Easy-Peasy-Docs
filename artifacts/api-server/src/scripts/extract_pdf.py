@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import csv
+import io
 import json
 import mimetypes
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +19,9 @@ MAX_TEXT_CHARACTERS = 1_000_000
 MAX_EXTRACTED_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGES = 200
 MAX_TABLES = 150
+OCR_DPI = 300
+OCR_TIMEOUT_SECONDS = 20
+LOW_OCR_CONFIDENCE = 60.0
 
 INDEX_HEADING = re.compile(
     r"^(?:table of contents|contents|index|subject index|contents and index)$",
@@ -230,6 +236,101 @@ def supported_image_bytes(block: dict[str, Any]) -> tuple[bytes, str]:
     return image_bytes, mime_type
 
 
+def ocr_image(
+    image_bytes: bytes,
+    bbox: list[float],
+    image_width: int,
+    image_height: int,
+    block_index: int,
+) -> list[dict[str, Any]]:
+    if not image_bytes or image_width <= 0 or image_height <= 0 or len(bbox) != 4:
+        return []
+
+    result = subprocess.run(
+        ["tesseract", "stdin", "stdout", "-l", "eng", "--psm", "6", "tsv"],
+        input=image_bytes,
+        capture_output=True,
+        timeout=OCR_TIMEOUT_SECONDS,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            result.args,
+            stderr=result.stderr,
+        )
+
+    x_scale = max(0.0, bbox[2] - bbox[0]) / image_width
+    y_scale = max(0.0, bbox[3] - bbox[1]) / image_height
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    reader = csv.DictReader(
+        io.StringIO(result.stdout.decode("utf-8", errors="replace"), newline=""),
+        delimiter="\t",
+    )
+    for row in reader:
+        text = clean_cell(row.get("text", ""))
+        if not text:
+            continue
+        key = (
+            row.get("block_num", ""),
+            row.get("par_num", ""),
+            row.get("line_num", ""),
+        )
+        try:
+            confidence = float(row.get("conf", "-1"))
+            left = float(row.get("left", "0"))
+            top = float(row.get("top", "0"))
+            width = float(row.get("width", "0"))
+            height = float(row.get("height", "0"))
+        except (TypeError, ValueError):
+            continue
+
+        line = grouped.setdefault(
+            key,
+            {
+                "words": [],
+                "confidences": [],
+                "left": left,
+                "top": top,
+                "right": left + width,
+                "bottom": top + height,
+            },
+        )
+        line["words"].append(text)
+        if confidence >= 0:
+            line["confidences"].append(confidence)
+        line["left"] = min(line["left"], left)
+        line["top"] = min(line["top"], top)
+        line["right"] = max(line["right"], left + width)
+        line["bottom"] = max(line["bottom"], top + height)
+
+    lines: list[dict[str, Any]] = []
+    for line in grouped.values():
+        if not line["confidences"]:
+            continue
+        confidence = sum(line["confidences"]) / len(line["confidences"])
+        line_bbox = [
+            bbox[0] + line["left"] * x_scale,
+            bbox[1] + line["top"] * y_scale,
+            bbox[0] + line["right"] * x_scale,
+            bbox[1] + line["bottom"] * y_scale,
+        ]
+        lines.append(
+            {
+                "text": " ".join(line["words"]),
+                "bbox": line_bbox,
+                "size": max(1.0, (line_bbox[3] - line_bbox[1]) * 0.75),
+                "font": "OCR",
+                "blockIndex": block_index,
+                "isOcr": True,
+                "ocrConfidence": round(confidence, 1),
+                "lowConfidenceOcr": confidence < LOW_OCR_CONFIDENCE,
+            }
+        )
+
+    return sorted(lines, key=lambda line: (line["bbox"][1], line["bbox"][0]))
+
+
 def extract_document(pdf_path: Path) -> dict[str, Any]:
     try:
         document = fitz.open(pdf_path)
@@ -257,14 +358,60 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
         skipped_index_pages = 0
         image_count = 0
         table_count = 0
+        ocr_page_count = 0
+        ocr_line_count = 0
+        low_confidence_ocr_lines = 0
+        ocr_failed_page_count = 0
         sequence = 0
 
         for page_index, page in enumerate(document):
             lines, image_blocks = page_layout(page)
-            if is_index_page(lines):
+            ocr_lines: list[dict[str, Any]] = []
+            ocr_failed = False
+            for image_index, image_block in enumerate(image_blocks):
+                image_bytes, _ = supported_image_bytes(image_block)
+                try:
+                    ocr_lines.extend(
+                        ocr_image(
+                            image_bytes,
+                            image_block.get("bbox", []),
+                            int(image_block.get("width", 0)),
+                            int(image_block.get("height", 0)),
+                            1_000_000 + image_index,
+                        )
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    ocr_failed = True
+                    break
+
+            if not lines and not image_blocks:
+                try:
+                    page_pixmap = page.get_pixmap(dpi=OCR_DPI, alpha=False)
+                    ocr_lines.extend(
+                        ocr_image(
+                            page_pixmap.tobytes("png"),
+                            [0.0, 0.0, float(page.rect.width), float(page.rect.height)],
+                            page_pixmap.width,
+                            page_pixmap.height,
+                            1_000_000,
+                        )
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    ocr_failed = True
+
+            if ocr_failed:
+                ocr_failed_page_count += 1
+
+            if is_index_page([*lines, *ocr_lines]):
                 skipped_index_pages += 1
                 continue
 
+            if ocr_lines:
+                ocr_page_count += 1
+                ocr_line_count += len(ocr_lines)
+                low_confidence_ocr_lines += sum(
+                    bool(line.get("lowConfidenceOcr")) for line in ocr_lines
+                )
             tables: list[tuple[tuple[float, float, float, float], list[list[str]]]] = []
             try:
                 detected_tables = page.find_tables()
@@ -302,6 +449,19 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                     continue
                 grouped_lines.setdefault(line["blockIndex"], []).append(line)
 
+            for line_index, line in enumerate(ocr_lines):
+                if is_page_number_line(line, page):
+                    removed_page_numbers += 1
+                    continue
+                if is_author_byline(
+                    line, ocr_lines, line_index, page, page_index, page_count
+                ):
+                    removed_author_bylines += 1
+                    continue
+                if any(boxes_overlap(line["bbox"], bbox) for bbox, _ in tables):
+                    continue
+                grouped_lines.setdefault(line["blockIndex"], []).append(line)
+
             for kept_lines in grouped_lines.values():
                 text = "\n".join(line["text"] for line in kept_lines).strip()
                 if not text:
@@ -322,6 +482,33 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                             "pageIndex": page_index,
                             "text": text,
                             "bbox": bbox,
+                            **(
+                                {
+                                    "isOcr": True,
+                                    "ocrConfidence": round(
+                                        sum(
+                                            float(line["ocrConfidence"])
+                                            for line in kept_lines
+                                            if line.get("isOcr")
+                                        )
+                                        / max(
+                                            1,
+                                            sum(
+                                                1
+                                                for line in kept_lines
+                                                if line.get("isOcr")
+                                            ),
+                                        ),
+                                        1,
+                                    ),
+                                    "lowConfidenceOcr": any(
+                                        line.get("lowConfidenceOcr")
+                                        for line in kept_lines
+                                    ),
+                                }
+                                if any(line.get("isOcr") for line in kept_lines)
+                                else {}
+                            ),
                         },
                     )
                 )
@@ -395,9 +582,9 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                     table_count += 1
 
         extracted_text = "\n\n".join(extracted_text_parts).strip()
-        if not extracted_text:
+        if not extracted_text and not any(block["type"] in {"table", "image"} for block in blocks):
             raise ExtractionError(
-                "No selectable text was found. Scanned PDFs are not supported in this phase."
+                "No readable text, tables, or images were found in this PDF."
             )
 
         return {
@@ -410,6 +597,10 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                 "removedAuthorBylines": removed_author_bylines,
                 "imageCount": image_count,
                 "tableCount": table_count,
+                "ocrPageCount": ocr_page_count,
+                "ocrLineCount": ocr_line_count,
+                "lowConfidenceOcrLines": low_confidence_ocr_lines,
+                "ocrFailedPageCount": ocr_failed_page_count,
             },
         }
 
@@ -433,7 +624,7 @@ def main() -> None:
         print(
             json.dumps(
                 {
-                    "error": "This PDF could not be processed. Try another text-based PDF.",
+                    "error": "This PDF could not be processed. Try another PDF.",
                     "status": 422,
                 },
                 ensure_ascii=False,

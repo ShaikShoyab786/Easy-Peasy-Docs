@@ -230,7 +230,7 @@ export const getExtractPdfDocumentUrl = () => {
 }
 
 /**
- * Extracts text, tables, and embedded images while excluding index pages, page-number text, and author bylines on the first and last pages.
+ * Extracts selectable text, OCR text from scans and embedded images, tables, and image previews while excluding index pages, page-number text, and author bylines on the first and last pages.
  * @summary Extract reviewable content from a PDF
  */
 export const extractPdfDocument = async (extractPdfDocumentBody: Blob, options?: Parameters<typeof customFetch>[1]): Promise<DocumentExtraction> => {
