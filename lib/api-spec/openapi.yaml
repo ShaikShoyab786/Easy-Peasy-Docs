@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: simplification
+    description: Plain-language text generation
 paths:
   /healthz:
     get:
@@ -24,6 +26,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /simplify:
+    post:
+      operationId: simplifyText
+      tags: [simplification]
+      summary: Simplify pasted text with Grok
+      description: Rewrites the supplied text using the user's plain-language prompt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimplifyInput"
+      responses:
+        "200":
+          description: Simplified text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimplifyResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: The Grok API returned an error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Grok API is not configured or temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +72,35 @@ components:
           type: string
       required:
         - status
+    SimplifyInput:
+      type: object
+      properties:
+        sourceText:
+          type: string
+          minLength: 1
+          maxLength: 60000
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      required:
+        - sourceText
+        - prompt
+    SimplifyResult:
+      type: object
+      properties:
+        result:
+          type: string
+        model:
+          type: string
+      required:
+        - result
+        - model
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
 

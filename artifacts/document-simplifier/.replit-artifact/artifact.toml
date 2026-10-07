@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Plain Language Lab"
+description = "A focused workspace for pasting complex text, refining a reusable plain-language prompt, and reviewing Grok-generated rewrites side by side before using the approach on full documents."
+version = "1.0.0"
+id = "artifacts/document-simplifier"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23322
+
+[services.development]
+run = "pnpm --filter @workspace/document-simplifier run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/document-simplifier", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/document-simplifier/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23322"
+BASE_PATH = "/"
