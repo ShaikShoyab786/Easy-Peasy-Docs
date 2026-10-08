@@ -1,15 +1,84 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { useHealthCheck, useSimplifyText, useExtractPdfDocument, getHealthCheckQueryKey } from '@workspace/api-client-react';
 import type { DocumentExtraction, MainContentStartCandidate } from '@workspace/api-client-react';
 import { ArrowDown, ArrowRight, Check, Clipboard, FileText, RotateCcw, Sparkles, X, Upload, FileSearch, Image as ImageIcon, Table2, ChevronRight } from 'lucide-react';
-import { Link, Route, Switch } from 'wouter';
+import { ClerkProvider, Show, SignIn, SignUp, useClerk } from '@clerk/react';
+import { publishableKeyFromHost } from '@clerk/react/internal';
+import { shadcn } from '@clerk/themes';
+import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument } from './document-simplification';
 import { useDocumentSimplificationJob } from './use-document-simplification-job';
+import { AccountActions, AccountPortal } from './account-portal';
 
 const queryClient = new QueryClient();
 const DEFAULT_PROMPT = 'Please explain the above in easy layman language with examples';
 const PDF_SIMPLIFICATION_CHARACTER_LIMIT = 100_000;
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const clerkPubKey = publishableKeyFromHost(
+  window.location.hostname,
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+
+if (!clerkPubKey) {
+  throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in the workspace environment.');
+}
+
+function stripBase(path: string): string {
+  return basePath && path.startsWith(basePath)
+    ? path.slice(basePath.length) || '/'
+    : path;
+}
+
+const clerkAppearance = {
+  theme: shadcn,
+  cssLayerName: 'clerk',
+  options: {
+    logoPlacement: 'inside' as const,
+    logoLinkUrl: basePath || '/',
+    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+  },
+  variables: {
+    colorPrimary: '#29483d',
+    colorForeground: '#293b33',
+    colorMutedForeground: '#68746c',
+    colorDanger: '#9b5140',
+    colorBackground: '#fbfaf5',
+    colorInput: '#ffffff',
+    colorInputForeground: '#293b33',
+    colorNeutral: '#d9d7c9',
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    borderRadius: '14px',
+  },
+  elements: {
+    rootBox: 'w-full flex justify-center',
+    cardBox: 'bg-[#fbfaf5] rounded-2xl w-[440px] max-w-full overflow-hidden',
+    card: '!shadow-none !border-0 !bg-transparent !rounded-none',
+    footer: '!shadow-none !border-0 !bg-transparent !rounded-none',
+    headerTitle: { color: '#293b33', fontSize: '24px', fontWeight: '700' },
+    headerSubtitle: { color: '#68746c', fontSize: '13px' },
+    socialButtonsBlockButtonText: { color: '#293b33', fontWeight: '600' },
+    formFieldLabel: { color: '#405047', fontWeight: '600' },
+    footerActionLink: { color: '#29483d', fontWeight: '700' },
+    footerActionText: { color: '#68746c' },
+    dividerText: { color: '#68746c' },
+    identityPreviewEditButton: { color: '#29483d' },
+    formFieldSuccessText: { color: '#496b3d' },
+    alertText: { color: '#8a4737' },
+    logoBox: 'mx-auto',
+    logoImage: 'max-h-12 w-auto',
+    socialButtonsBlockButton: 'border border-[#d9d7c9] bg-white hover:bg-[#f4f2e9]',
+    formButtonPrimary: 'bg-[#29483d] text-white hover:bg-[#203a31]',
+    formFieldInput: 'border-[#d9d7c9] bg-white text-[#293b33]',
+    footerAction: 'text-[#68746c]',
+    dividerLine: 'bg-[#e5e2d8]',
+    alert: 'border-[#e3c4b8] bg-[#fff6f2]',
+    otpCodeFieldInput: 'border-[#d9d7c9] bg-white text-[#293b33]',
+    formFieldRow: 'text-[#405047]',
+    main: 'text-[#293b33]',
+  },
+};
 
 function startCandidateKey(candidate: MainContentStartCandidate): string {
   return `${candidate.sequence}:${candidate.offset}`;
@@ -104,6 +173,9 @@ function Home() {
               <p className="mt-4 max-w-[445px] text-[14px] leading-[1.7] text-[#68746c]">
                 Paste a policy to generate a plain-language rewrite, or simplify a PDF in the review workspace. No emojis, no fluff, just pure clarity.
               </p>
+              <div className="mt-5">
+                <AccountActions />
+              </div>
             </div>
             <div className="hidden min-w-[186px] items-center gap-3 pb-1 sm:flex">
               <div className="relative h-[44px] w-[44px] rounded-full border border-[#d6d8c8]">
@@ -940,15 +1012,129 @@ function Documents() {
   );
 }
 
+function SignInPage() {
+  return (
+    <div className="flex min-h-[100dvh] items-center justify-center bg-[#f4f2e9] px-4 py-8">
+      <SignIn
+        routing="path"
+        path={`${basePath}/sign-in`}
+        signUpUrl={`${basePath}/sign-up`}
+        appearance={clerkAppearance}
+      />
+    </div>
+  );
+}
+
+function SignUpPage() {
+  return (
+    <div className="flex min-h-[100dvh] items-center justify-center bg-[#f4f2e9] px-4 py-8">
+      <SignUp
+        routing="path"
+        path={`${basePath}/sign-up`}
+        signInUrl={`${basePath}/sign-in`}
+        appearance={clerkAppearance}
+      />
+    </div>
+  );
+}
+
+function HomeRedirect() {
+  return (
+    <>
+      <Show when="signed-in">
+        <Redirect to="/user-portal" />
+      </Show>
+      <Show when="signed-out">
+        <Home />
+      </Show>
+    </>
+  );
+}
+
+function UserPortalRoute() {
+  return (
+    <>
+      <Show when="signed-in">
+        <AccountPortal />
+      </Show>
+      <Show when="signed-out">
+        <Redirect to="/" />
+      </Show>
+    </>
+  );
+}
+
+function ClerkQueryClientCacheInvalidator() {
+  const { addListener } = useClerk();
+  const queryClient = useQueryClient();
+  const previousUserId = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    const unsubscribe = addListener(({ user }) => {
+      const userId = user?.id ?? null;
+      if (
+        previousUserId.current !== undefined &&
+        previousUserId.current !== userId
+      ) {
+        queryClient.clear();
+      }
+      previousUserId.current = userId;
+    });
+    return unsubscribe;
+  }, [addListener, queryClient]);
+
+  return null;
+}
+
+function ClerkProviderWithRoutes() {
+  const [, setLocation] = useLocation();
+
+  return (
+    <ClerkProvider
+      publishableKey={clerkPubKey}
+      proxyUrl={clerkProxyUrl}
+      appearance={clerkAppearance}
+      signInUrl={`${basePath}/sign-in`}
+      signUpUrl={`${basePath}/sign-up`}
+      localization={{
+        signIn: {
+          start: {
+            title: 'Welcome back',
+            subtitle: 'Sign in to access your account',
+          },
+        },
+        signUp: {
+          start: {
+            title: 'Create your account',
+            subtitle: 'Save conversations and PDFs to your account',
+          },
+        },
+      }}
+      routerPush={(to) => setLocation(stripBase(to))}
+      routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
+    >
+      <QueryClientProvider client={queryClient}>
+        <ClerkQueryClientCacheInvalidator />
+        <Switch>
+          <Route path="/" component={HomeRedirect} />
+          <Route path="/sign-in/*?" component={SignInPage} />
+          <Route path="/sign-up/*?" component={SignUpPage} />
+          <Route path="/user-portal" component={UserPortalRoute} />
+          <Route path="/documents" component={Documents} />
+          <Route>
+            <HomeRedirect />
+          </Route>
+        </Switch>
+      </QueryClientProvider>
+    </ClerkProvider>
+  );
+}
+
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/documents" component={Documents} />
-        <Route><Home /></Route>
-      </Switch>
-    </QueryClientProvider>
+    <WouterRouter base={basePath}>
+      <ClerkProviderWithRoutes />
+    </WouterRouter>
   );
 }
 

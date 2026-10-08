@@ -8,7 +8,9 @@ export function requireAuth(
   res: Response,
   next: NextFunction,
 ): void {
-  const { userId } = getAuth(req);
+  const auth = getAuth(req);
+  const candidate = auth?.sessionClaims?.userId || auth?.userId;
+  const userId = typeof candidate === "string" ? candidate : null;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
     return;

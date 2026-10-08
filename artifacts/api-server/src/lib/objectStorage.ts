@@ -5,8 +5,8 @@ import { File, Storage } from "@google-cloud/storage";
 import {
   canAccessObject,
   getObjectAclPolicy,
+  ObjectPermission,
   type ObjectAclPolicy,
-  type ObjectPermission,
   setObjectAclPolicy,
 } from "./objectAcl";
 
@@ -180,8 +180,7 @@ export class ObjectStorageService {
     return canAccessObject({
       userId,
       objectFile,
-      requestedPermission:
-        requestedPermission ?? (await import("./objectAcl")).ObjectPermission.READ,
+      requestedPermission: requestedPermission ?? ObjectPermission.READ,
     });
   }
 }

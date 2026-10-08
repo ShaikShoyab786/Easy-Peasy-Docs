@@ -10,6 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: account
+    description: Signed-in account identity
+  - name: conversations
+    description: Account-owned conversation and message persistence
+  - name: stored-documents
+    description: Account-owned PDF storage
   - name: simplification
     description: Plain-language text generation
   - name: document-extraction
@@ -28,6 +34,392 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /account:
+    get:
+      operationId: getAccountIdentity
+      tags: [account]
+      summary: Get the signed-in account identity
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: Current account identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountIdentity"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      summary: List the signed-in user's conversations
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: User-owned conversations, newest activity first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationList"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: createConversation
+      tags: [conversations]
+      summary: Create a conversation for the signed-in user
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationCreatePayload"
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /conversations/{conversationId}:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: renameConversation
+      tags: [conversations]
+      summary: Rename a user-owned conversation
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationRenamePayload"
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: deleteConversation
+      tags: [conversations]
+      summary: Delete a conversation, its messages, and its stored PDFs
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "204":
+          description: Conversation and associated data deleted
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Stored PDF cleanup failed; conversation was not deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /conversations/{conversationId}/messages:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listConversationMessages
+      tags: [conversations]
+      summary: List messages in a user-owned conversation
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: Conversation messages in creation order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageList"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: addConversationMessage
+      tags: [conversations]
+      summary: Store a user message in a user-owned conversation
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessageBody"
+      responses:
+        "201":
+          description: User message stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /documents:
+    get:
+      operationId: listStoredDocuments
+      tags: [stored-documents]
+      summary: List the signed-in user's saved PDFs
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: User-owned saved PDFs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredDocumentList"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /documents/upload-url:
+    post:
+      operationId: requestStoredDocumentUpload
+      tags: [stored-documents]
+      summary: Create a private PDF upload slot for the signed-in user
+      description: Returns a short-lived upload URL. The file is not available until the upload is completed and verified.
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestDocumentUploadBody"
+      responses:
+        "201":
+          description: Upload slot created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentUploadTicket"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: PDF exceeds the 12 MiB storage limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /documents/{documentId}/complete:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: completeStoredDocumentUpload
+      tags: [stored-documents]
+      summary: Verify and finalize a PDF upload
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: Verified saved PDF
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredDocument"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Upload slot or uploaded object not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Uploaded file does not match the requested PDF
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /documents/{documentId}/file:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getStoredDocumentFile
+      tags: [stored-documents]
+      summary: Read a private PDF owned by the signed-in user
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Saved PDF not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /documents/{documentId}:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: deleteStoredDocument
+      tags: [stored-documents]
+      summary: Delete a saved PDF and its private object
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "204":
+          description: Saved PDF deleted
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Saved PDF not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: PDF cleanup failed; metadata was not deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /simplify:
     post:
       operationId: simplifyText
@@ -178,7 +570,151 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 components:
+  securitySchemes:
+    ClerkSessionCookie:
+      type: apiKey
+      in: cookie
+      name: __session
   schemas:
+    AccountIdentity:
+      type: object
+      properties:
+        userId:
+          type: string
+      required: [userId]
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, createdAt, updatedAt]
+    ConversationList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+      required: [items]
+    ConversationCreatePayload:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+    ConversationRenamePayload:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+      required: [title]
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, conversationId, role, content, createdAt]
+    MessageList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+      required: [items]
+    CreateMessageBody:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 30000
+      required: [content]
+    StoredDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: [string, "null"]
+          format: uuid
+        fileName:
+          type: string
+        contentType:
+          type: string
+          const: application/pdf
+        byteSize:
+          type: integer
+        status:
+          type: string
+          enum: [pending_upload, ready, failed]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, conversationId, fileName, contentType, byteSize, status, createdAt]
+    StoredDocumentList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoredDocument"
+      required: [items]
+    RequestDocumentUploadBody:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        size:
+          type: integer
+          minimum: 1
+          maximum: 12582912
+        contentType:
+          type: string
+          const: application/pdf
+        conversationId:
+          type: [string, "null"]
+          format: uuid
+      required: [name, size, contentType]
+    DocumentUploadTicket:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        objectPath:
+          type: string
+        uploadURL:
+          type: string
+          format: uri
+      required: [documentId, objectPath, uploadURL]
     HealthStatus:
       type: object
       properties:

@@ -20,12 +20,24 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AccountIdentity,
   ApiError,
+  Conversation,
+  ConversationCreatePayload,
+  ConversationList,
+  ConversationRenamePayload,
+  CreateMessageBody,
   DocumentExtraction,
   DocumentSimplificationJobCreated,
+  DocumentUploadTicket,
   HealthStatus,
+  Message,
+  MessageList,
+  RequestDocumentUploadBody,
   SimplifyInput,
-  SimplifyResult
+  SimplifyResult,
+  StoredDocument,
+  StoredDocumentList
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -132,6 +144,968 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+
+export const getGetAccountIdentityUrl = () => {
+
+
+
+
+  return `/api/account`
+}
+
+/**
+ * @summary Get the signed-in account identity
+ */
+export const getAccountIdentity = async ( options?: Parameters<typeof customFetch>[1]): Promise<AccountIdentity> => {
+
+  return customFetch<AccountIdentity>(getGetAccountIdentityUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAccountIdentityQueryKey = () => {
+    return [
+    `/api/account`
+    ] as const;
+    }
+
+
+export const getGetAccountIdentityQueryOptions = <TData = Awaited<ReturnType<typeof getAccountIdentity>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAccountIdentity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAccountIdentityQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAccountIdentity>>> = ({ signal }) => getAccountIdentity({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAccountIdentity>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAccountIdentityQueryResult = NonNullable<Awaited<ReturnType<typeof getAccountIdentity>>>
+export type GetAccountIdentityQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Get the signed-in account identity
+ */
+
+export function useGetAccountIdentity<TData = Awaited<ReturnType<typeof getAccountIdentity>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAccountIdentity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAccountIdentityQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListConversationsUrl = () => {
+
+
+
+
+  return `/api/conversations`
+}
+
+/**
+ * @summary List the signed-in user's conversations
+ */
+export const listConversations = async ( options?: Parameters<typeof customFetch>[1]): Promise<ConversationList> => {
+
+  return customFetch<ConversationList>(getListConversationsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListConversationsQueryKey = () => {
+    return [
+    `/api/conversations`
+    ] as const;
+    }
+
+
+export const getListConversationsQueryOptions = <TData = Awaited<ReturnType<typeof listConversations>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListConversationsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listConversations>>> = ({ signal }) => listConversations({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listConversations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListConversationsQueryResult = NonNullable<Awaited<ReturnType<typeof listConversations>>>
+export type ListConversationsQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List the signed-in user's conversations
+ */
+
+export function useListConversations<TData = Awaited<ReturnType<typeof listConversations>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListConversationsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateConversationUrl = () => {
+
+
+
+
+  return `/api/conversations`
+}
+
+/**
+ * @summary Create a conversation for the signed-in user
+ */
+export const createConversation = async (conversationCreatePayload: ConversationCreatePayload, options?: Parameters<typeof customFetch>[1]): Promise<Conversation> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Conversation>(getCreateConversationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(conversationCreatePayload)
+  }
+);}
+
+
+
+
+
+export const getCreateConversationMutationKey = () => ['createConversation'] as const;
+
+export const getCreateConversationMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversation>>, TError,CreateConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createConversation>>, TError,CreateConversationMutationVariables, TContext> => {
+
+const mutationKey = getCreateConversationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createConversation>>, CreateConversationMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createConversation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateConversationMutationResult = NonNullable<Awaited<ReturnType<typeof createConversation>>>
+    export type CreateConversationMutationBody = BodyType<ConversationCreatePayload>
+    export type CreateConversationMutationError = ErrorType<ApiError>
+    export type CreateConversationMutationVariables = {data: BodyType<ConversationCreatePayload>}
+
+    /**
+ * @summary Create a conversation for the signed-in user
+ */
+export const useCreateConversation = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversation>>, TError,CreateConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createConversation>>,
+        TError,
+        CreateConversationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateConversationMutationOptions(options));
+    }
+
+export const getRenameConversationUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}`
+}
+
+/**
+ * @summary Rename a user-owned conversation
+ */
+export const renameConversation = async (conversationId: string,
+    conversationRenamePayload: ConversationRenamePayload, options?: Parameters<typeof customFetch>[1]): Promise<Conversation> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Conversation>(getRenameConversationUrl(conversationId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(conversationRenamePayload)
+  }
+);}
+
+
+
+
+
+export const getRenameConversationMutationKey = () => ['renameConversation'] as const;
+
+export const getRenameConversationMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameConversation>>, TError,RenameConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof renameConversation>>, TError,RenameConversationMutationVariables, TContext> => {
+
+const mutationKey = getRenameConversationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renameConversation>>, RenameConversationMutationVariables> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  renameConversation(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RenameConversationMutationResult = NonNullable<Awaited<ReturnType<typeof renameConversation>>>
+    export type RenameConversationMutationBody = BodyType<ConversationRenamePayload>
+    export type RenameConversationMutationError = ErrorType<ApiError>
+    export type RenameConversationMutationVariables = {conversationId: string;data: BodyType<ConversationRenamePayload>}
+
+    /**
+ * @summary Rename a user-owned conversation
+ */
+export const useRenameConversation = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameConversation>>, TError,RenameConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof renameConversation>>,
+        TError,
+        RenameConversationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRenameConversationMutationOptions(options));
+    }
+
+export const getDeleteConversationUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}`
+}
+
+/**
+ * @summary Delete a conversation, its messages, and its stored PDFs
+ */
+export const deleteConversation = async (conversationId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteConversationUrl(conversationId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteConversationMutationKey = () => ['deleteConversation'] as const;
+
+export const getDeleteConversationMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConversation>>, TError,DeleteConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteConversation>>, TError,DeleteConversationMutationVariables, TContext> => {
+
+const mutationKey = getDeleteConversationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteConversation>>, DeleteConversationMutationVariables> = (props) => {
+          const {conversationId} = props ?? {};
+
+          return  deleteConversation(conversationId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteConversationMutationResult = NonNullable<Awaited<ReturnType<typeof deleteConversation>>>
+
+    export type DeleteConversationMutationError = ErrorType<ApiError>
+    export type DeleteConversationMutationVariables = {conversationId: string}
+
+    /**
+ * @summary Delete a conversation, its messages, and its stored PDFs
+ */
+export const useDeleteConversation = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConversation>>, TError,DeleteConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteConversation>>,
+        TError,
+        DeleteConversationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteConversationMutationOptions(options));
+    }
+
+export const getListConversationMessagesUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}/messages`
+}
+
+/**
+ * @summary List messages in a user-owned conversation
+ */
+export const listConversationMessages = async (conversationId: string, options?: Parameters<typeof customFetch>[1]): Promise<MessageList> => {
+
+  return customFetch<MessageList>(getListConversationMessagesUrl(conversationId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListConversationMessagesQueryKey = (conversationId: string,) => {
+    return [
+    `/api/conversations/${conversationId}/messages`
+    ] as const;
+    }
+
+
+export const getListConversationMessagesQueryOptions = <TData = Awaited<ReturnType<typeof listConversationMessages>>, TError = ErrorType<ApiError>>(conversationId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listConversationMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListConversationMessagesQueryKey(conversationId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listConversationMessages>>> = ({ signal }) => listConversationMessages(conversationId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: conversationId !== null && conversationId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listConversationMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListConversationMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof listConversationMessages>>>
+export type ListConversationMessagesQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List messages in a user-owned conversation
+ */
+
+export function useListConversationMessages<TData = Awaited<ReturnType<typeof listConversationMessages>>, TError = ErrorType<ApiError>>(
+ conversationId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listConversationMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListConversationMessagesQueryOptions(conversationId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAddConversationMessageUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}/messages`
+}
+
+/**
+ * @summary Store a user message in a user-owned conversation
+ */
+export const addConversationMessage = async (conversationId: string,
+    createMessageBody: CreateMessageBody, options?: Parameters<typeof customFetch>[1]): Promise<Message> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Message>(getAddConversationMessageUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createMessageBody)
+  }
+);}
+
+
+
+
+
+export const getAddConversationMessageMutationKey = () => ['addConversationMessage'] as const;
+
+export const getAddConversationMessageMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addConversationMessage>>, TError,AddConversationMessageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addConversationMessage>>, TError,AddConversationMessageMutationVariables, TContext> => {
+
+const mutationKey = getAddConversationMessageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addConversationMessage>>, AddConversationMessageMutationVariables> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  addConversationMessage(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddConversationMessageMutationResult = NonNullable<Awaited<ReturnType<typeof addConversationMessage>>>
+    export type AddConversationMessageMutationBody = BodyType<CreateMessageBody>
+    export type AddConversationMessageMutationError = ErrorType<ApiError>
+    export type AddConversationMessageMutationVariables = {conversationId: string;data: BodyType<CreateMessageBody>}
+
+    /**
+ * @summary Store a user message in a user-owned conversation
+ */
+export const useAddConversationMessage = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addConversationMessage>>, TError,AddConversationMessageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addConversationMessage>>,
+        TError,
+        AddConversationMessageMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAddConversationMessageMutationOptions(options));
+    }
+
+export const getListStoredDocumentsUrl = () => {
+
+
+
+
+  return `/api/documents`
+}
+
+/**
+ * @summary List the signed-in user's saved PDFs
+ */
+export const listStoredDocuments = async ( options?: Parameters<typeof customFetch>[1]): Promise<StoredDocumentList> => {
+
+  return customFetch<StoredDocumentList>(getListStoredDocumentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListStoredDocumentsQueryKey = () => {
+    return [
+    `/api/documents`
+    ] as const;
+    }
+
+
+export const getListStoredDocumentsQueryOptions = <TData = Awaited<ReturnType<typeof listStoredDocuments>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listStoredDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListStoredDocumentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listStoredDocuments>>> = ({ signal }) => listStoredDocuments({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listStoredDocuments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListStoredDocumentsQueryResult = NonNullable<Awaited<ReturnType<typeof listStoredDocuments>>>
+export type ListStoredDocumentsQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List the signed-in user's saved PDFs
+ */
+
+export function useListStoredDocuments<TData = Awaited<ReturnType<typeof listStoredDocuments>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listStoredDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListStoredDocumentsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRequestStoredDocumentUploadUrl = () => {
+
+
+
+
+  return `/api/documents/upload-url`
+}
+
+/**
+ * Returns a short-lived upload URL. The file is not available until the upload is completed and verified.
+ * @summary Create a private PDF upload slot for the signed-in user
+ */
+export const requestStoredDocumentUpload = async (requestDocumentUploadBody: RequestDocumentUploadBody, options?: Parameters<typeof customFetch>[1]): Promise<DocumentUploadTicket> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<DocumentUploadTicket>(getRequestStoredDocumentUploadUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(requestDocumentUploadBody)
+  }
+);}
+
+
+
+
+
+export const getRequestStoredDocumentUploadMutationKey = () => ['requestStoredDocumentUpload'] as const;
+
+export const getRequestStoredDocumentUploadMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestStoredDocumentUpload>>, TError,RequestStoredDocumentUploadMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestStoredDocumentUpload>>, TError,RequestStoredDocumentUploadMutationVariables, TContext> => {
+
+const mutationKey = getRequestStoredDocumentUploadMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestStoredDocumentUpload>>, RequestStoredDocumentUploadMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestStoredDocumentUpload(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestStoredDocumentUploadMutationResult = NonNullable<Awaited<ReturnType<typeof requestStoredDocumentUpload>>>
+    export type RequestStoredDocumentUploadMutationBody = BodyType<RequestDocumentUploadBody>
+    export type RequestStoredDocumentUploadMutationError = ErrorType<ApiError>
+    export type RequestStoredDocumentUploadMutationVariables = {data: BodyType<RequestDocumentUploadBody>}
+
+    /**
+ * @summary Create a private PDF upload slot for the signed-in user
+ */
+export const useRequestStoredDocumentUpload = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestStoredDocumentUpload>>, TError,RequestStoredDocumentUploadMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestStoredDocumentUpload>>,
+        TError,
+        RequestStoredDocumentUploadMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRequestStoredDocumentUploadMutationOptions(options));
+    }
+
+export const getCompleteStoredDocumentUploadUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/documents/${documentId}/complete`
+}
+
+/**
+ * @summary Verify and finalize a PDF upload
+ */
+export const completeStoredDocumentUpload = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<StoredDocument> => {
+
+  return customFetch<StoredDocument>(getCompleteStoredDocumentUploadUrl(documentId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompleteStoredDocumentUploadMutationKey = () => ['completeStoredDocumentUpload'] as const;
+
+export const getCompleteStoredDocumentUploadMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeStoredDocumentUpload>>, TError,CompleteStoredDocumentUploadMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeStoredDocumentUpload>>, TError,CompleteStoredDocumentUploadMutationVariables, TContext> => {
+
+const mutationKey = getCompleteStoredDocumentUploadMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeStoredDocumentUpload>>, CompleteStoredDocumentUploadMutationVariables> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  completeStoredDocumentUpload(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteStoredDocumentUploadMutationResult = NonNullable<Awaited<ReturnType<typeof completeStoredDocumentUpload>>>
+
+    export type CompleteStoredDocumentUploadMutationError = ErrorType<ApiError>
+    export type CompleteStoredDocumentUploadMutationVariables = {documentId: string}
+
+    /**
+ * @summary Verify and finalize a PDF upload
+ */
+export const useCompleteStoredDocumentUpload = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeStoredDocumentUpload>>, TError,CompleteStoredDocumentUploadMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeStoredDocumentUpload>>,
+        TError,
+        CompleteStoredDocumentUploadMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCompleteStoredDocumentUploadMutationOptions(options));
+    }
+
+export const getGetStoredDocumentFileUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/documents/${documentId}/file`
+}
+
+/**
+ * @summary Read a private PDF owned by the signed-in user
+ */
+export const getStoredDocumentFile = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetStoredDocumentFileUrl(documentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStoredDocumentFileQueryKey = (documentId: string,) => {
+    return [
+    `/api/documents/${documentId}/file`
+    ] as const;
+    }
+
+
+export const getGetStoredDocumentFileQueryOptions = <TData = Awaited<ReturnType<typeof getStoredDocumentFile>>, TError = ErrorType<ApiError>>(documentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStoredDocumentFile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStoredDocumentFileQueryKey(documentId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStoredDocumentFile>>> = ({ signal }) => getStoredDocumentFile(documentId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: documentId !== null && documentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStoredDocumentFile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStoredDocumentFileQueryResult = NonNullable<Awaited<ReturnType<typeof getStoredDocumentFile>>>
+export type GetStoredDocumentFileQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Read a private PDF owned by the signed-in user
+ */
+
+export function useGetStoredDocumentFile<TData = Awaited<ReturnType<typeof getStoredDocumentFile>>, TError = ErrorType<ApiError>>(
+ documentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStoredDocumentFile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStoredDocumentFileQueryOptions(documentId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDeleteStoredDocumentUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/documents/${documentId}`
+}
+
+/**
+ * @summary Delete a saved PDF and its private object
+ */
+export const deleteStoredDocument = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteStoredDocumentUrl(documentId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteStoredDocumentMutationKey = () => ['deleteStoredDocument'] as const;
+
+export const getDeleteStoredDocumentMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteStoredDocument>>, TError,DeleteStoredDocumentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteStoredDocument>>, TError,DeleteStoredDocumentMutationVariables, TContext> => {
+
+const mutationKey = getDeleteStoredDocumentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteStoredDocument>>, DeleteStoredDocumentMutationVariables> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  deleteStoredDocument(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteStoredDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof deleteStoredDocument>>>
+
+    export type DeleteStoredDocumentMutationError = ErrorType<ApiError>
+    export type DeleteStoredDocumentMutationVariables = {documentId: string}
+
+    /**
+ * @summary Delete a saved PDF and its private object
+ */
+export const useDeleteStoredDocument = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteStoredDocument>>, TError,DeleteStoredDocumentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteStoredDocument>>,
+        TError,
+        DeleteStoredDocumentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteStoredDocumentMutationOptions(options));
+    }
 
 export const getSimplifyTextUrl = () => {
 

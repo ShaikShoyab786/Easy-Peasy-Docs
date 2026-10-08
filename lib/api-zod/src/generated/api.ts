@@ -18,6 +18,199 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary Get the signed-in account identity
+ */
+export const GetAccountIdentityResponse = zod.object({
+  "userId": zod.string()
+})
+
+
+/**
+ * @summary List the signed-in user's conversations
+ */
+export const ListConversationsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Create a conversation for the signed-in user
+ */
+export const createConversationBodyTitleMax = 120;
+
+
+
+export const CreateConversationBody = zod.object({
+  "title": zod.string().min(1).max(createConversationBodyTitleMax).optional()
+})
+
+export const CreateConversationResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Rename a user-owned conversation
+ */
+export const RenameConversationParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const renameConversationBodyTitleMax = 120;
+
+
+
+export const RenameConversationBody = zod.object({
+  "title": zod.string().min(1).max(renameConversationBodyTitleMax)
+})
+
+export const RenameConversationResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a conversation, its messages, and its stored PDFs
+ */
+export const DeleteConversationParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const DeleteConversationResponse = zod.void()
+
+
+/**
+ * @summary List messages in a user-owned conversation
+ */
+export const ListConversationMessagesParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const ListConversationMessagesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Store a user message in a user-owned conversation
+ */
+export const AddConversationMessageParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const addConversationMessageBodyContentMax = 30000;
+
+
+
+export const AddConversationMessageBody = zod.object({
+  "content": zod.string().min(1).max(addConversationMessageBodyContentMax)
+})
+
+export const AddConversationMessageResponse = zod.object({
+  "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List the signed-in user's saved PDFs
+ */
+export const ListStoredDocumentsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
+  "fileName": zod.string(),
+  "contentType": zod.literal("application/pdf"),
+  "byteSize": zod.number().int(),
+  "status": zod.enum(['pending_upload', 'ready', 'failed']),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * Returns a short-lived upload URL. The file is not available until the upload is completed and verified.
+ * @summary Create a private PDF upload slot for the signed-in user
+ */
+export const requestStoredDocumentUploadBodyNameMax = 180;
+
+export const requestStoredDocumentUploadBodySizeMax = 12582912;
+
+
+
+export const RequestStoredDocumentUploadBody = zod.object({
+  "name": zod.string().min(1).max(requestStoredDocumentUploadBodyNameMax),
+  "size": zod.number().int().min(1).max(requestStoredDocumentUploadBodySizeMax),
+  "contentType": zod.literal("application/pdf"),
+  "conversationId": zod.string().uuid().nullish()
+})
+
+export const RequestStoredDocumentUploadResponse = zod.object({
+  "documentId": zod.string().uuid(),
+  "objectPath": zod.string(),
+  "uploadURL": zod.string().url()
+})
+
+
+/**
+ * @summary Verify and finalize a PDF upload
+ */
+export const CompleteStoredDocumentUploadParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const CompleteStoredDocumentUploadResponse = zod.object({
+  "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
+  "fileName": zod.string(),
+  "contentType": zod.literal("application/pdf"),
+  "byteSize": zod.number().int(),
+  "status": zod.enum(['pending_upload', 'ready', 'failed']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Read a private PDF owned by the signed-in user
+ */
+export const GetStoredDocumentFileParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const GetStoredDocumentFileResponse = zod.unknown()
+
+
+/**
+ * @summary Delete a saved PDF and its private object
+ */
+export const DeleteStoredDocumentParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const DeleteStoredDocumentResponse = zod.void()
+
+
+/**
  * Rewrites the supplied text using the user's plain-language prompt.
  * @summary Simplify pasted text with Grok
  */

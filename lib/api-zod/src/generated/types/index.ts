@@ -6,7 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './accountIdentity';
 export * from './apiError';
+export * from './conversation';
+export * from './conversationCreatePayload';
+export * from './conversationList';
+export * from './conversationRenamePayload';
+export * from './createMessageBody';
 export * from './documentBlock';
 export * from './documentBlockType';
 export * from './documentExtraction';
@@ -14,9 +20,17 @@ export * from './documentExtractionSummary';
 export * from './documentSimplificationJobCreated';
 export * from './documentSimplificationJobCreatedStatus';
 export * from './documentTable';
+export * from './documentUploadTicket';
 export * from './healthStatus';
 export * from './mainContentStart';
 export * from './mainContentStartCandidate';
 export * from './mainContentStartConfidence';
+export * from './message';
+export * from './messageList';
+export * from './messageRole';
+export * from './requestDocumentUploadBody';
 export * from './simplifyInput';
 export * from './simplifyResult';
+export * from './storedDocument';
+export * from './storedDocumentList';
+export * from './storedDocumentStatus';

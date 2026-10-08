@@ -5,6 +5,111 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface AccountIdentity {
+  userId: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationList {
+  items: Conversation[];
+}
+
+export interface ConversationCreatePayload {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title?: string;
+}
+
+export interface ConversationRenamePayload {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+}
+
+export type MessageRole = typeof MessageRole[keyof typeof MessageRole];
+
+
+export const MessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  createdAt: string;
+}
+
+export interface MessageList {
+  items: Message[];
+}
+
+export interface CreateMessageBody {
+  /**
+     * @minLength 1
+     * @maxLength 30000
+     */
+  content: string;
+}
+
+export type StoredDocumentStatus = typeof StoredDocumentStatus[keyof typeof StoredDocumentStatus];
+
+
+export const StoredDocumentStatus = {
+  pending_upload: 'pending_upload',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+
+export interface StoredDocument {
+  id: string;
+  /** @nullable */
+  conversationId: string | null;
+  fileName: string;
+  contentType: 'application/pdf';
+  byteSize: number;
+  status: StoredDocumentStatus;
+  createdAt: string;
+}
+
+export interface StoredDocumentList {
+  items: StoredDocument[];
+}
+
+export interface RequestDocumentUploadBody {
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  name: string;
+  /**
+     * @minimum 1
+     * @maximum 12582912
+     */
+  size: number;
+  contentType: 'application/pdf';
+  /** @nullable */
+  conversationId?: string | null;
+}
+
+export interface DocumentUploadTicket {
+  documentId: string;
+  objectPath: string;
+  uploadURL: string;
+}
+
 export interface HealthStatus {
   status: string;
 }

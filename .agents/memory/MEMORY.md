@@ -3,3 +3,4 @@
 - [PDF simplification job recovery](pdf-simplification-job-recovery.md) — jobs are process-local; SSE replay reconnects within the running API process, not after restarts.
 - [PyMuPDF stdout](pymupdf-stdout.md) — keep library diagnostics off stdout when a Python subprocess returns machine-readable JSON.
 - [Artifact workflow stale listeners](artifact-workflow-stale-listeners.md) — check listeners after `EADDRINUSE`; a failed managed workflow may leave its earlier process group serving.
+- [OpenAPI codegen names](openapi-codegen-names.md) — give request-body components distinct names so generated operation types do not collide in exports.
