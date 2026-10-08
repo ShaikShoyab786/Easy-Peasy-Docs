@@ -97,6 +97,57 @@ test("tables with changed numbers safely fall back to original rows", async () =
   }
 });
 
+test("source image and table markers retain their original order", async () => {
+  const originalFetch = globalThis.fetch;
+  const imageBefore = "[[SOURCE_IMAGE_1]]";
+  const tableToken = "[[SOURCE_TABLE_1]]";
+  const imageAfter = "[[SOURCE_IMAGE_2]]";
+  globalThis.fetch = async () =>
+    modelResponse(
+      `# Clear overview\n\nA clearer opening.\n\n${imageBefore}\n\n${tableToken}\n\n${imageAfter}\n\nA final idea.`,
+      [{ token: tableToken, rows: [["Item", "Value"]] }],
+    );
+
+  try {
+    const result = await simplifyDocumentInChunks(input({
+      sourceText: `A source introduction.\n\n${imageBefore}\n\n${tableToken}\n\n${imageAfter}\n\nA source ending.`,
+      tables: [{ token: tableToken, rows: [["Label", "Value"]] }],
+    }));
+    assert.deepEqual(
+      [...result.result.matchAll(/\[\[SOURCE_(?:TABLE|IMAGE)_\d+\]\]/g)].map(
+        (match) => match[0],
+      ),
+      [imageBefore, tableToken, imageAfter],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects source image and table markers moved from their original order", async () => {
+  const originalFetch = globalThis.fetch;
+  const imageToken = "[[SOURCE_IMAGE_1]]";
+  const tableToken = "[[SOURCE_TABLE_1]]";
+  globalThis.fetch = async () =>
+    modelResponse(
+      `# Clear overview\n\n${tableToken}\n\n${imageToken}`,
+      [{ token: tableToken, rows: [["Label", "Value"]] }],
+    );
+
+  try {
+    await assert.rejects(
+      simplifyDocumentInChunks(input({
+        sourceText: `A source introduction.\n\n${imageToken}\n\n${tableToken}`,
+        tables: [{ token: tableToken, rows: [["Label", "Value"]] }],
+      })),
+      (error) =>
+        error instanceof DocumentSimplificationError && error.statusCode === 502,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("every chunk is sent in order and the total input limit includes table cells", async () => {
   const originalFetch = globalThis.fetch;
   let requestCount = 0;
