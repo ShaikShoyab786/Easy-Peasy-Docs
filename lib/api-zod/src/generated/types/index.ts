@@ -8,6 +8,7 @@
 
 export * from './accountIdentity';
 export * from './apiError';
+export * from './chatMessageInput';
 export * from './conversation';
 export * from './conversationCreatePayload';
 export * from './conversationList';

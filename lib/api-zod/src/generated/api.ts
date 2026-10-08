@@ -133,6 +133,32 @@ export const AddConversationMessageResponse = zod.object({
 
 
 /**
+ * @summary Send a message and receive a saved assistant reply
+ */
+export const SendConversationChatTurnParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const sendConversationChatTurnBodyContentMax = 6000;
+
+
+
+export const SendConversationChatTurnBody = zod.object({
+  "content": zod.string().min(1).max(sendConversationChatTurnBodyContentMax)
+})
+
+export const SendConversationChatTurnResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * @summary List the signed-in user's saved PDFs
  */
 export const ListStoredDocumentsResponse = zod.object({

@@ -247,6 +247,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /conversations/{conversationId}/chat:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: sendConversationChatTurn
+      tags: [conversations]
+      summary: Send a message and receive a saved assistant reply
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatMessageInput"
+      responses:
+        "201":
+          description: User and assistant messages saved in creation order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageList"
+        "400":
+          description: Invalid chat message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: The assistant returned an invalid response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: The assistant service is temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /documents:
     get:
       operationId: listStoredDocuments
@@ -653,6 +710,14 @@ components:
           type: string
           minLength: 1
           maxLength: 30000
+      required: [content]
+    ChatMessageInput:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 6000
       required: [content]
     StoredDocument:
       type: object

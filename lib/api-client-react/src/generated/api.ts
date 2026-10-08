@@ -22,6 +22,7 @@ import type {
 import type {
   AccountIdentity,
   ApiError,
+  ChatMessageInput,
   Conversation,
   ConversationCreatePayload,
   ConversationList,
@@ -714,6 +715,95 @@ export const useAddConversationMessage = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getAddConversationMessageMutationOptions(options));
+    }
+
+export const getSendConversationChatTurnUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}/chat`
+}
+
+/**
+ * @summary Send a message and receive a saved assistant reply
+ */
+export const sendConversationChatTurn = async (conversationId: string,
+    chatMessageInput: ChatMessageInput, options?: Parameters<typeof customFetch>[1]): Promise<MessageList> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<MessageList>(getSendConversationChatTurnUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(chatMessageInput)
+  }
+);}
+
+
+
+
+
+export const getSendConversationChatTurnMutationKey = () => ['sendConversationChatTurn'] as const;
+
+export const getSendConversationChatTurnMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendConversationChatTurn>>, TError,SendConversationChatTurnMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendConversationChatTurn>>, TError,SendConversationChatTurnMutationVariables, TContext> => {
+
+const mutationKey = getSendConversationChatTurnMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendConversationChatTurn>>, SendConversationChatTurnMutationVariables> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  sendConversationChatTurn(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendConversationChatTurnMutationResult = NonNullable<Awaited<ReturnType<typeof sendConversationChatTurn>>>
+    export type SendConversationChatTurnMutationBody = BodyType<ChatMessageInput>
+    export type SendConversationChatTurnMutationError = ErrorType<ApiError>
+    export type SendConversationChatTurnMutationVariables = {conversationId: string;data: BodyType<ChatMessageInput>}
+
+    /**
+ * @summary Send a message and receive a saved assistant reply
+ */
+export const useSendConversationChatTurn = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendConversationChatTurn>>, TError,SendConversationChatTurnMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendConversationChatTurn>>,
+        TError,
+        SendConversationChatTurnMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSendConversationChatTurnMutationOptions(options));
     }
 
 export const getListStoredDocumentsUrl = () => {

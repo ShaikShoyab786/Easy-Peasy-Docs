@@ -64,6 +64,14 @@ export interface CreateMessageBody {
   content: string;
 }
 
+export interface ChatMessageInput {
+  /**
+     * @minLength 1
+     * @maxLength 6000
+     */
+  content: string;
+}
+
 export type StoredDocumentStatus = typeof StoredDocumentStatus[keyof typeof StoredDocumentStatus];
 
 
