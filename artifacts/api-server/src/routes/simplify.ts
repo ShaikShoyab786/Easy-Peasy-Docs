@@ -5,6 +5,7 @@ import {
   getDocumentCharacterCount,
   simplifyDocumentInChunks,
   type DocumentSimplificationProgress,
+  type DocumentSimplificationResponseDiagnostics,
 } from "../lib/document-simplifier";
 import { PLAIN_LANGUAGE_OUTPUT_GUIDANCE } from "../lib/plain-language-format";
 import {
@@ -222,6 +223,11 @@ function startDocumentSimplificationWorker({
         sourceText,
         prompt,
         tables,
+        onModelResponseIssue: (diagnostics: DocumentSimplificationResponseDiagnostics) =>
+          log.warn(
+            { jobId, ...diagnostics },
+            "Grok returned an unexpected PDF rewrite response",
+          ),
         onProgress: (event: DocumentSimplificationProgress) => {
           if (event.type === "started") {
             totalSections = event.totalSections;
@@ -438,6 +444,13 @@ router.post("/simplify", async (req, res): Promise<void> => {
           sourceText,
           prompt,
           tables: parsed.data.tables ?? [],
+          onModelResponseIssue: (
+            diagnostics: DocumentSimplificationResponseDiagnostics,
+          ) =>
+            req.log.warn(
+              { ...diagnostics },
+              "Grok returned an unexpected PDF rewrite response",
+            ),
         });
         res.json(
           SimplifyTextResponse.parse({
