@@ -1,4 +1,5 @@
 import type { DocumentTable } from "@workspace/api-zod";
+import { PLAIN_LANGUAGE_OUTPUT_GUIDANCE } from "./plain-language-format";
 
 const XAI_API_BASE = "https://api.x.ai/v1";
 const MAX_DOCUMENT_CHARACTERS = 100_000;
@@ -377,10 +378,11 @@ export async function simplifyDocumentInChunks({
     const chunkTokens = [...chunk.matchAll(TABLE_TOKEN_PATTERN)].map((match) => match[0]);
     const modelInput = [
       prompt,
+      PLAIN_LANGUAGE_OUTPUT_GUIDANCE,
       isFirstDocumentChunk
-        ? `This is the first section (${sectionLabel}). Create the document's single main heading here if the source has a title.`
+        ? `This is the first section (${sectionLabel}). Begin with one short orientation sentence, then create the document's single main heading if the source has a title.`
         : `Rewrite this section (${sectionLabel}) in place. Do not add another main title or introduction.`,
-      "Rewrite all supplied prose, lists, and headings. Do not summarize or skip a clause. Preserve every table token exactly once and in its original position. Keep original table row and column counts; simplify table wording but preserve every number, date, percentage, amount, unit, and identifier exactly.",
+      "Rewrite all supplied prose, lists, and headings. Do not summarize or skip a clause. Preserve every table token exactly once and in its original position. Keep original table row and column counts; simplify table wording but preserve every number, date, percentage, amount, unit, and identifier exactly. Return Markdown for the document field.",
       `SOURCE PART AND TABLE CELLS:\n${JSON.stringify({ text: chunk, tables: chunkTables })}`,
       'Return valid JSON only, with this exact shape: {"document":"rewritten Markdown text with table tokens","tables":[{"token":"[[SOURCE_TABLE_1]]","rows":[["rewritten cell"]]}]}. Include one table entry for every table token in this part; use an empty array if there are none.',
     ].join("\n\n");

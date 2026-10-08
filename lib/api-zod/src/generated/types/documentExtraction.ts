@@ -7,11 +7,13 @@
  */
 import type { DocumentBlock } from './documentBlock';
 import type { DocumentExtractionSummary } from './documentExtractionSummary';
+import type { MainContentStart } from './mainContentStart';
 
 export interface DocumentExtraction {
   fileName: string;
   pageCount: number;
   extractedText: string;
   blocks: DocumentBlock[];
+  mainContentStart: MainContentStart;
   summary: DocumentExtractionSummary;
 }

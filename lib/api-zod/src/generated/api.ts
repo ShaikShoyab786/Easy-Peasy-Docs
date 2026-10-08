@@ -125,6 +125,15 @@ export const ExtractPdfDocumentResponse = zod.object({
   "lowConfidenceOcr": zod.boolean().optional().describe('True when OCR confidence is below the review threshold.'),
   "bbox": zod.array(zod.number()).min(extractPdfDocumentResponseBlocksItemBboxMin).max(extractPdfDocumentResponseBlocksItemBboxMax).optional().describe('Bounding box in PDF points, retained for future document reconstruction.')
 })),
+  "mainContentStart": zod.object({
+  "confidence": zod.enum(['high', 'review', 'not_found']),
+  "candidates": zod.array(zod.object({
+  "sequence": zod.number().int(),
+  "pageIndex": zod.number().int().describe('Zero-based physical page position within the PDF.'),
+  "offset": zod.number().int().describe('Character offset within the text block where the heading begins.'),
+  "heading": zod.string()
+}))
+}),
   "summary": zod.object({
   "skippedIndexPages": zod.number().int(),
   "removedPageNumberLines": zod.number().int(),

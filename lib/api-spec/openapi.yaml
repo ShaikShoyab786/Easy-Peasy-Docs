@@ -272,6 +272,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DocumentBlock"
+        mainContentStart:
+          $ref: "#/components/schemas/MainContentStart"
         summary:
           $ref: "#/components/schemas/DocumentExtractionSummary"
       required:
@@ -279,7 +281,39 @@ components:
         - pageCount
         - extractedText
         - blocks
+        - mainContentStart
         - summary
+    MainContentStart:
+      type: object
+      properties:
+        confidence:
+          type: string
+          enum: [high, review, not_found]
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/MainContentStartCandidate"
+      required:
+        - confidence
+        - candidates
+    MainContentStartCandidate:
+      type: object
+      properties:
+        sequence:
+          type: integer
+        pageIndex:
+          type: integer
+          description: Zero-based physical page position within the PDF.
+        offset:
+          type: integer
+          description: Character offset within the text block where the heading begins.
+        heading:
+          type: string
+      required:
+        - sequence
+        - pageIndex
+        - offset
+        - heading
     DocumentBlock:
       type: object
       properties:

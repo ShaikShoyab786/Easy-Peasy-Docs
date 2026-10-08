@@ -36,6 +36,15 @@ type ExtractorResponse =
       pageCount: number;
       extractedText: string;
       blocks: unknown[];
+      mainContentStart: {
+        confidence: "high" | "review" | "not_found";
+        candidates: {
+          sequence: number;
+          pageIndex: number;
+          offset: number;
+          heading: string;
+        }[];
+      };
       summary: {
         skippedIndexPages: number;
         removedPageNumberLines: number;

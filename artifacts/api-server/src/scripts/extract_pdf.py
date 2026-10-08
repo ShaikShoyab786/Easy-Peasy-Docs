@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import contextlib
 import csv
+import difflib
 import io
 import json
 import mimetypes
 import re
 import subprocess
 import sys
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,39 @@ INDEX_HEADING = re.compile(
     re.IGNORECASE,
 )
 INDEX_ENTRY = re.compile(r"(?:\.{2,}\s*\d{1,4}|\s{2,}\d{1,4})$")
+CONTENTS_ENTRY = re.compile(
+    r"^(?P<title>.+?)(?:\.{2,}\s*|…{2,}\s*|\s{2,})"
+    r"(?P<page>\d{1,4}|[ivxlcdm]{1,8})\.?$",
+    re.IGNORECASE,
+)
+SECTION_NUMBER = re.compile(r"^\s*(\d+(?:\.\d+)*)(?:[.)])?\s+")
+CHAPTER_NUMBER = re.compile(r"^\s*(?:chapter|section|part)\s+\d+\b", re.IGNORECASE)
+FRONT_MATTER_LABELS = {
+    "abstract",
+    "executive summary",
+    "summary",
+    "foreword",
+    "preface",
+    "acknowledgement",
+    "acknowledgements",
+    "acknowledgment",
+    "acknowledgments",
+    "contents",
+    "table of contents",
+    "contents and index",
+    "index",
+    "subject index",
+    "abbreviation",
+    "abbreviations",
+    "acronym",
+    "acronyms",
+    "acronyms and abbreviations",
+    "glossary",
+    "list of figures",
+    "list of tables",
+    "list of illustrations",
+    "list of abbreviations",
+}
 PAGE_NUMBER = re.compile(
     r"^(?:page\s*)?\d{1,5}(?:\s*(?:of|/)\s*\d{1,5})?\.?$"
     r"|^(?:[-–—]\s*)?\(?[ivxlcdm]{1,8}\)?(?:\s*[-–—])?$",
@@ -144,6 +179,94 @@ def is_index_page(lines: list[dict[str, Any]]) -> bool:
     index_entries = sum(bool(INDEX_ENTRY.search(text)) for text in following_lines)
     return index_entries >= 2 or (
         len(following_lines) >= 8 and heading_index == 0
+    )
+
+
+def normalize_heading(text: str) -> str:
+    value = text.strip()
+    value = re.sub(
+        r"^(?:(?:chapter|section|part)\s+\d+(?:\.\d+)*|\d+(?:\.\d+)*)"
+        r"\s*[.):\-]?\s*",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+def is_front_matter_title(text: str) -> bool:
+    normalized = normalize_heading(text)
+    return normalized in FRONT_MATTER_LABELS or bool(
+        re.fullmatch(r"(?:annexure|appendix)(?:\s+[ivxlcdm0-9]+)?", normalized)
+    )
+
+
+def parse_contents_entries(lines: list[dict[str, Any]]) -> list[str]:
+    entries: list[str] = []
+    for line in lines:
+        text = re.sub(r"\s+", " ", line["text"]).strip()
+        match = CONTENTS_ENTRY.fullmatch(text)
+        if not match:
+            continue
+        title = match.group("title").strip(" .\t–—-")
+        if len(title) >= 3 and not is_front_matter_title(title):
+            entries.append(title)
+    return entries
+
+
+def first_main_contents_entry(entries: list[str]) -> str | None:
+    eligible = [title for title in entries if not is_front_matter_title(title)]
+    for title in eligible:
+        number = SECTION_NUMBER.match(title)
+        if number and "." not in number.group(1):
+            return title
+        if CHAPTER_NUMBER.match(title):
+            return title
+    return eligible[0] if eligible else None
+
+
+def headings_match(first: str, second: str) -> bool:
+    normalized_first = normalize_heading(first)
+    normalized_second = normalize_heading(second)
+    if normalized_first == normalized_second:
+        return True
+    if not normalized_first or not normalized_second:
+        return False
+    first_words = normalized_first.split()
+    second_words = normalized_second.split()
+    if min(len(first_words), len(second_words)) < 3:
+        return False
+    shared_words = set(first_words) & set(second_words)
+    coverage = len(shared_words) / min(len(set(first_words)), len(set(second_words)))
+    return (
+        coverage >= 0.9
+        and difflib.SequenceMatcher(None, normalized_first, normalized_second).ratio()
+        >= 0.88
+    )
+
+
+def is_heading_candidate(line: dict[str, Any], median_size: float) -> bool:
+    text = line["text"].strip()
+    if (
+        len(text) < 4
+        or len(text) > 120
+        or is_front_matter_title(text)
+        or PAGE_NUMBER.fullmatch(text)
+    ):
+        return False
+
+    number = SECTION_NUMBER.match(text)
+    primary_numbered = bool(number and "." not in number.group(1))
+    chapter_numbered = bool(CHAPTER_NUMBER.match(text))
+    font = str(line.get("font", "")).casefold()
+    bold = any(name in font for name in ("bold", "black", "heavy", "semibold"))
+    size = float(line.get("size", 0))
+    large = size >= max(13.0, median_size * 1.18)
+    short_uppercase = text.isupper() and len(text.split()) <= 12
+
+    return chapter_numbered or (
+        (primary_numbered or bold or large or short_uppercase)
+        and len(text.split()) <= 16
     )
 
 
@@ -363,6 +486,9 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
         low_confidence_ocr_lines = 0
         ocr_failed_page_count = 0
         sequence = 0
+        contents_start_title: str | None = None
+        high_confidence_starts: list[dict[str, Any]] = []
+        review_starts: list[dict[str, Any]] = []
 
         for page_index, page in enumerate(document):
             lines, image_blocks = page_layout(page)
@@ -402,8 +528,13 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
             if ocr_failed:
                 ocr_failed_page_count += 1
 
-            if is_index_page([*lines, *ocr_lines]):
+            page_lines = [*lines, *ocr_lines]
+            if is_index_page(page_lines):
                 skipped_index_pages += 1
+                if contents_start_title is None:
+                    contents_start_title = first_main_contents_entry(
+                        parse_contents_entries(page_lines)
+                    )
                 continue
 
             if ocr_lines:
@@ -462,10 +593,48 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                     continue
                 grouped_lines.setdefault(line["blockIndex"], []).append(line)
 
+            font_sizes = [
+                float(line.get("size", 0))
+                for line in page_lines
+                if float(line.get("size", 0)) > 0
+            ]
+            median_size = statistics.median(font_sizes) if font_sizes else 0
+
             for kept_lines in grouped_lines.values():
                 text = "\n".join(line["text"] for line in kept_lines).strip()
                 if not text:
                     continue
+                candidate_details: list[dict[str, Any]] = []
+                character_offset = 0
+                seen_headings: set[tuple[str, int]] = set()
+                for line in kept_lines:
+                    line_text = line["text"].strip()
+                    heading_candidate = is_heading_candidate(line, median_size)
+                    if heading_candidate:
+                        toc_match = bool(
+                            contents_start_title
+                            and headings_match(contents_start_title, line_text)
+                        )
+                        key = (normalize_heading(line_text), character_offset)
+                        if key not in seen_headings:
+                            seen_headings.add(key)
+                            candidate_details.append(
+                                {
+                                    "heading": line_text,
+                                    "offset": character_offset,
+                                    "confidence": (
+                                        "high"
+                                        if toc_match
+                                        and (
+                                            not line.get("isOcr")
+                                            or float(line.get("ocrConfidence", 0)) >= 80
+                                        )
+                                        else "review"
+                                    ),
+                                }
+                            )
+                    character_offset += len(line["text"]) + 1
+
                 kept_boxes = [line["bbox"] for line in kept_lines]
                 bbox = [
                     min(box[0] for box in kept_boxes),
@@ -482,6 +651,7 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                             "pageIndex": page_index,
                             "text": text,
                             "bbox": bbox,
+                            "_simplificationStartCandidates": candidate_details,
                             **(
                                 {
                                     "isOcr": True,
@@ -569,6 +739,19 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
             for _, _, block in page_items:
                 sequence += 1
                 block["sequence"] = sequence
+                start_candidates = block.pop(
+                    "_simplificationStartCandidates", []
+                )
+                for candidate in start_candidates:
+                    candidate_with_location = {
+                        **candidate,
+                        "sequence": sequence,
+                        "pageIndex": page_index,
+                    }
+                    if candidate["confidence"] == "high":
+                        high_confidence_starts.append(candidate_with_location)
+                    else:
+                        review_starts.append(candidate_with_location)
                 blocks.append(block)
                 if block["type"] == "text":
                     extracted_text_parts.append(block["text"])
@@ -587,10 +770,43 @@ def extract_document(pdf_path: Path) -> dict[str, Any]:
                 "No readable text, tables, or images were found in this PDF."
             )
 
+        if high_confidence_starts:
+            main_content_start = {
+                "confidence": "high",
+                "candidates": high_confidence_starts[:1],
+            }
+        elif review_starts:
+            numbered_starts = [
+                candidate
+                for candidate in review_starts
+                if (
+                    (
+                        (number := SECTION_NUMBER.match(candidate["heading"]))
+                        and "." not in number.group(1)
+                    )
+                    or CHAPTER_NUMBER.match(candidate["heading"])
+                )
+            ]
+            review_candidates = numbered_starts or review_starts
+            review_candidates.sort(
+                key=lambda candidate: (
+                    candidate["pageIndex"],
+                    candidate["sequence"],
+                    candidate["offset"],
+                )
+            )
+            main_content_start = {
+                "confidence": "review",
+                "candidates": review_candidates[:30],
+            }
+        else:
+            main_content_start = {"confidence": "not_found", "candidates": []}
+
         return {
             "pageCount": page_count,
             "extractedText": extracted_text,
             "blocks": blocks,
+            "mainContentStart": main_content_start,
             "summary": {
                 "skippedIndexPages": skipped_index_pages,
                 "removedPageNumberLines": removed_page_numbers,

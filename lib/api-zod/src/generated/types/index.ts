@@ -15,5 +15,8 @@ export * from './documentSimplificationJobCreated';
 export * from './documentSimplificationJobCreatedStatus';
 export * from './documentTable';
 export * from './healthStatus';
+export * from './mainContentStart';
+export * from './mainContentStartCandidate';
+export * from './mainContentStartConfidence';
 export * from './simplifyInput';
 export * from './simplifyResult';

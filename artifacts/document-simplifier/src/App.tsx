@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useHealthCheck, useSimplifyText, useExtractPdfDocument, getHealthCheckQueryKey } from '@workspace/api-client-react';
-import type { DocumentExtraction } from '@workspace/api-client-react';
+import type { DocumentExtraction, MainContentStartCandidate } from '@workspace/api-client-react';
 import { ArrowDown, ArrowRight, Check, Clipboard, FileText, RotateCcw, Sparkles, X, Upload, FileSearch, Image as ImageIcon, Table2, ChevronRight } from 'lucide-react';
 import { Link, Route, Switch } from 'wouter';
 import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument } from './document-simplification';
@@ -10,6 +10,17 @@ import { useDocumentSimplificationJob } from './use-document-simplification-job'
 const queryClient = new QueryClient();
 const DEFAULT_PROMPT = 'Please explain the above in easy layman language with examples';
 const PDF_SIMPLIFICATION_CHARACTER_LIMIT = 100_000;
+
+function startCandidateKey(candidate: MainContentStartCandidate): string {
+  return `${candidate.sequence}:${candidate.offset}`;
+}
+
+const BEGINNING_OF_DOCUMENT: MainContentStartCandidate = {
+  sequence: 0,
+  pageIndex: 0,
+  offset: 0,
+  heading: 'Beginning of PDF',
+};
 
 function Home() {
   const [sourceText, setSourceText] = useState('');
@@ -250,8 +261,8 @@ function Home() {
                         {result.model}
                       </span>
                     </div>
-                    <div className="whitespace-pre-wrap text-[14px] leading-[1.85] text-[#39493f]" data-testid="text-generated-output">
-                      {result.result}
+                    <div className="min-w-0" data-testid="text-generated-output">
+                      <SimplifiedDocument content={result.result} elements={{}} />
                     </div>
                   </>
                 ) : (
@@ -306,6 +317,8 @@ function Home() {
 function Documents() {
   const [extraction, setExtraction] = useState<DocumentExtraction | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedStartKey, setSelectedStartKey] = useState('');
+  const [manualStartPage, setManualStartPage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -321,7 +334,15 @@ function Documents() {
   useEffect(() => {
     if (!selectedFile) return;
     extract.mutate({ data: selectedFile }, {
-      onSuccess: (response) => setExtraction(response),
+      onSuccess: (response) => {
+        setExtraction(response);
+        const recommendedStart = response.mainContentStart.candidates[0];
+        setSelectedStartKey(
+          response.mainContentStart.confidence === 'high' && recommendedStart
+            ? startCandidateKey(recommendedStart)
+            : '',
+        );
+      },
     });
   }, [selectedFile, extract.mutate]);
 
@@ -335,6 +356,8 @@ function Documents() {
     documentJob.clear();
     setSelectedFile(file);
     setExtraction(null);
+    setSelectedStartKey('');
+    setManualStartPage('');
     extract.reset();
   }
 
@@ -353,16 +376,48 @@ function Documents() {
     documentJob.clear();
     setExtraction(null);
     setSelectedFile(null);
+    setSelectedStartKey('');
+    setManualStartPage('');
     setFileError('');
     extract.reset();
   }
 
   const blocks = extraction?.blocks ?? [];
   const hasContent = !!extraction && (blocks.length > 0 || extraction.extractedText.length > 0);
-  const serialized = useMemo(() => extraction ? serializeExtraction(extraction) : null, [extraction]);
+  const startCandidates = extraction?.mainContentStart.candidates ?? [];
+  const manualStart = useMemo(() => {
+    if (!extraction || !manualStartPage) return null;
+    const pageIndex = Number(manualStartPage) - 1;
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= extraction.pageCount) return null;
+    const firstBlockOnPage = [...extraction.blocks]
+      .filter((block) => block.pageIndex === pageIndex)
+      .sort((a, b) => a.sequence - b.sequence)[0];
+    if (!firstBlockOnPage) return null;
+    return {
+      sequence: firstBlockOnPage.sequence,
+      pageIndex: firstBlockOnPage.pageIndex,
+      offset: 0,
+      heading: `PDF page ${pageIndex + 1}`,
+    } satisfies MainContentStartCandidate;
+  }, [extraction, manualStartPage]);
+  const selectedStart = selectedStartKey === 'beginning'
+    ? BEGINNING_OF_DOCUMENT
+    : selectedStartKey === 'manual'
+      ? manualStart
+      : startCandidates.find((candidate) => startCandidateKey(candidate) === selectedStartKey) ?? null;
+  const serialized = useMemo(
+    () => extraction ? serializeExtraction(extraction, selectedStart) : null,
+    [extraction, selectedStart],
+  );
   const sourceLength = serialized?.sourceLength ?? 0;
   const isSourceOverLimit = sourceLength > PDF_SIMPLIFICATION_CHARACTER_LIMIT;
-  const canSimplify = hasContent && sourceLength > 0 && !isSourceOverLimit && !isJobWorking;
+  const canSimplify = hasContent && !!selectedStart && sourceLength > 0 && !isSourceOverLimit && !isJobWorking;
+
+  function chooseStart(value: string) {
+    if (value !== selectedStartKey) documentJob.clear();
+    setSelectedStartKey(value);
+    if (value !== 'manual') setManualStartPage('');
+  }
 
   function generateDocument() {
     if (!canSimplify || !serialized) return;
@@ -596,6 +651,76 @@ function Documents() {
                       <p className="mt-3 rounded-[9px] border border-[#ead5c9] bg-[#faf1eb] px-3.5 py-3 text-[11px] leading-[1.65] text-[#995c4b]" role="alert" data-testid="status-source-too-long">
                         This PDF prepares {sourceLength.toLocaleString()} characters, above the {PDF_SIMPLIFICATION_CHARACTER_LIMIT.toLocaleString()}-character limit. Choose a shorter PDF or split the document and upload one part at a time.
                       </p>
+                    )}
+                    {extraction && (
+                      <div className="mt-4 rounded-[10px] border border-[#e5e4d8] bg-[#f8f7f0] p-3.5" data-testid="section-start-selector">
+                        <div className="mono text-[9px] uppercase tracking-[.11em] text-[#829079]">Where should the simplified document start?</div>
+                        {extraction.mainContentStart.confidence === 'high' && extraction.mainContentStart.candidates[0] ? (
+                          <p className="mt-1.5 text-[11px] leading-[1.6] text-[#667367]">
+                            We matched a contents entry to the document heading. Review the selected start or choose another point.
+                          </p>
+                        ) : extraction.mainContentStart.confidence === 'review' ? (
+                          <p className="mt-1.5 text-[11px] leading-[1.6] text-[#667367]">
+                            We could not confirm the contents match, so choose a section or enter its PDF page before simplifying.
+                          </p>
+                        ) : (
+                          <p className="mt-1.5 text-[11px] leading-[1.6] text-[#667367]">
+                            No clear section heading was detected. Choose a PDF page or explicitly include the whole document.
+                          </p>
+                        )}
+                        <label className="mt-3 block">
+                          <span className="sr-only">Select the first section to include</span>
+                          <select
+                            value={selectedStartKey}
+                            onChange={(event) => chooseStart(event.target.value)}
+                            disabled={isJobWorking}
+                            className="min-h-[38px] w-full rounded-[8px] border border-[#d9d9cc] bg-[#fffefa] px-3 text-[11px] text-[#435449] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d8560]"
+                            data-testid="select-document-start"
+                          >
+                            <option value="">Choose a starting point…</option>
+                            <option value="beginning">Beginning of PDF (include front matter)</option>
+                            {startCandidates.map((candidate) => (
+                              <option key={startCandidateKey(candidate)} value={startCandidateKey(candidate)}>
+                                {candidate.heading} · PDF page {candidate.pageIndex + 1}
+                              </option>
+                            ))}
+                            {selectedStartKey === 'manual' && (
+                              <option value="manual" disabled>
+                                Manual start · PDF page {manualStartPage}
+                              </option>
+                            )}
+                          </select>
+                        </label>
+                        <label className="mt-3 flex items-center justify-between gap-3">
+                          <span className="text-[10px] text-[#737d73]">Or start at PDF page</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={extraction.pageCount}
+                            value={manualStartPage}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              if (value !== manualStartPage) documentJob.clear();
+                              setManualStartPage(value);
+                              setSelectedStartKey(value ? 'manual' : '');
+                            }}
+                            disabled={isJobWorking}
+                            className="h-[34px] w-[92px] rounded-[7px] border border-[#d9d9cc] bg-[#fffefa] px-2 text-[11px] tabular-nums text-[#435449] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d8560]"
+                            aria-label={`PDF page number, from 1 to ${extraction.pageCount}`}
+                            data-testid="input-document-start-page"
+                          />
+                        </label>
+                        {selectedStartKey === 'manual' && manualStartPage && !manualStart && (
+                          <p className="mt-2 text-[10px] leading-[1.5] text-[#995c4b]" role="alert">
+                            Choose a page from 1 to {extraction.pageCount} that has extracted content.
+                          </p>
+                        )}
+                        {selectedStart && (
+                          <p className="mt-2 text-[10px] text-[#829079]" data-testid="text-selected-document-start">
+                            Simplification starts at “{selectedStart.heading}” · PDF page {selectedStart.pageIndex + 1}
+                          </p>
+                        )}
+                      </div>
                     )}
                     <button
                       type="button"

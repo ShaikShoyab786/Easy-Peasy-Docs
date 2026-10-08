@@ -92,6 +92,29 @@ export interface DocumentBlock {
   bbox?: number[];
 }
 
+export type MainContentStartConfidence = typeof MainContentStartConfidence[keyof typeof MainContentStartConfidence];
+
+
+export const MainContentStartConfidence = {
+  high: 'high',
+  review: 'review',
+  not_found: 'not_found',
+} as const;
+
+export interface MainContentStartCandidate {
+  sequence: number;
+  /** Zero-based physical page position within the PDF. */
+  pageIndex: number;
+  /** Character offset within the text block where the heading begins. */
+  offset: number;
+  heading: string;
+}
+
+export interface MainContentStart {
+  confidence: MainContentStartConfidence;
+  candidates: MainContentStartCandidate[];
+}
+
 export interface DocumentExtractionSummary {
   skippedIndexPages: number;
   removedPageNumberLines: number;
@@ -109,6 +132,7 @@ export interface DocumentExtraction {
   pageCount: number;
   extractedText: string;
   blocks: DocumentBlock[];
+  mainContentStart: MainContentStart;
   summary: DocumentExtractionSummary;
 }
 

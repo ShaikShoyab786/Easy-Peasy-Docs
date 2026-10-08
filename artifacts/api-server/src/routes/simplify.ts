@@ -6,6 +6,7 @@ import {
   simplifyDocumentInChunks,
   type DocumentSimplificationProgress,
 } from "../lib/document-simplifier";
+import { PLAIN_LANGUAGE_OUTPUT_GUIDANCE } from "../lib/plain-language-format";
 import {
   createDocumentSimplificationJob,
   DocumentJobCapacityError,
@@ -466,7 +467,7 @@ router.post("/simplify", async (req, res): Promise<void> => {
       },
       body: JSON.stringify({
         model,
-        input: `${sourceText}\n\n${prompt}\n\nDo not include a section titled "Bottom line."`,
+        input: `${sourceText}\n\nUSER REQUEST:\n${prompt}\n\n${PLAIN_LANGUAGE_OUTPUT_GUIDANCE}`,
         store: false,
       }),
       signal: AbortSignal.timeout(60_000),
