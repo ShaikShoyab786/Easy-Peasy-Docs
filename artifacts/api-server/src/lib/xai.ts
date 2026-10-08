@@ -144,13 +144,6 @@ export async function discoverGrokModel(
   };
 }
 
-const CHAT_SYSTEM_PROMPT = [
-  "You are the Easy Peasy Docs assistant.",
-  "Help users understand policies and other dense writing in clear, practical language.",
-  "Preserve important conditions, exceptions, dates, amounts, and other details.",
-  "Answer from the conversation. If a user asks about a document that has not been included in the chat, ask them to paste the relevant text.",
-].join(" ");
-
 export async function generateGrokChatReply(
   apiKey: string,
   history: AssistantHistoryMessage[],
@@ -188,12 +181,8 @@ export async function generateGrokChatReply(
       },
       body: JSON.stringify({
         model: discovery.model,
-        input: [
-          { role: "system", content: CHAT_SYSTEM_PROMPT },
-          ...history.map(({ role, content }) => ({ role, content })),
-        ],
+        input: history.map(({ role, content }) => ({ role, content })),
         store: false,
-        max_output_tokens: 1200,
       }),
       signal: AbortSignal.timeout(60_000),
     });

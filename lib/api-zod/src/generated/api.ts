@@ -18,6 +18,28 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * Generates a reply from the provided conversation history without storing it on the server.
+ * @summary Send a turn in an anonymous chat
+ */
+export const sendGuestChatTurnBodyMessagesItemContentMax = 6000;
+
+export const sendGuestChatTurnBodyMessagesMax = 32;
+
+
+
+export const SendGuestChatTurnBody = zod.object({
+  "messages": zod.array(zod.object({
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string().min(1).max(sendGuestChatTurnBodyMessagesItemContentMax)
+})).min(1).max(sendGuestChatTurnBodyMessagesMax)
+})
+
+export const SendGuestChatTurnResponse = zod.object({
+  "content": zod.string()
+})
+
+
+/**
  * @summary Get the signed-in account identity
  */
 export const GetAccountIdentityResponse = zod.object({

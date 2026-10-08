@@ -10,6 +10,7 @@ import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } fr
 import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument } from './document-simplification';
 import { useDocumentSimplificationJob } from './use-document-simplification-job';
 import { AccountActions, AccountPortal } from './account-portal';
+import { GuestChat } from './guest-chat';
 
 const queryClient = new QueryClient();
 const DEFAULT_PROMPT = 'Please explain the above in easy layman language with examples';
@@ -1045,7 +1046,7 @@ function HomeRedirect() {
         <Redirect to="/user-portal" />
       </Show>
       <Show when="signed-out">
-        <Home />
+        <GuestChat />
       </Show>
     </>
   );

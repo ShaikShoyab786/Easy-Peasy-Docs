@@ -34,6 +34,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /guest-chat:
+    post:
+      operationId: sendGuestChatTurn
+      tags: [guest-chat]
+      summary: Send a turn in an anonymous chat
+      description: Generates a reply from the provided conversation history without storing it on the server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuestChatInput"
+      responses:
+        "200":
+          description: Assistant reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestChatResponse"
+        "400":
+          description: Invalid chat history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Too many requests
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: The assistant returned an invalid response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: The assistant service is temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /account:
     get:
       operationId: getAccountIdentity
@@ -718,6 +765,35 @@ components:
           type: string
           minLength: 1
           maxLength: 6000
+      required: [content]
+    GuestChatMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 6000
+      required: [role, content]
+    GuestChatInput:
+      type: object
+      additionalProperties: false
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/GuestChatMessage"
+      required: [messages]
+    GuestChatResponse:
+      type: object
+      properties:
+        content:
+          type: string
       required: [content]
     StoredDocument:
       type: object

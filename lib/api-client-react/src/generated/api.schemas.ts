@@ -72,6 +72,35 @@ export interface ChatMessageInput {
   content: string;
 }
 
+export type GuestChatMessageRole = typeof GuestChatMessageRole[keyof typeof GuestChatMessageRole];
+
+
+export const GuestChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface GuestChatMessage {
+  role: GuestChatMessageRole;
+  /**
+     * @minLength 1
+     * @maxLength 6000
+     */
+  content: string;
+}
+
+export interface GuestChatInput {
+  /**
+     * @minItems 1
+     * @maxItems 32
+     */
+  messages: GuestChatMessage[];
+}
+
+export interface GuestChatResponse {
+  content: string;
+}
+
 export type StoredDocumentStatus = typeof StoredDocumentStatus[keyof typeof StoredDocumentStatus];
 
 
