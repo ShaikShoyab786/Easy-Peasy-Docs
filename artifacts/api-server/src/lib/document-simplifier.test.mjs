@@ -39,7 +39,16 @@ test("chunking preserves every paragraph in the original order", () => {
   const chunks = splitDocumentIntoChunks(source);
 
   assert.ok(chunks.length > 1);
-  assert.ok(chunks.every((chunk) => chunk.length <= 24_000));
+  assert.ok(chunks.every((chunk) => chunk.length <= 14_000));
+  assert.equal(chunks.join("\n\n"), source);
+});
+
+test("chunk boundaries account for the extracted table cells attached to a token", () => {
+  const token = "[[SOURCE_TABLE_1]]";
+  const source = `Introduction\n\n${token}\n\nClosing paragraph`;
+  const chunks = splitDocumentIntoChunks(source, 100, new Map([[token, 80]]));
+
+  assert.deepEqual(chunks, ["Introduction", token, "Closing paragraph"]);
   assert.equal(chunks.join("\n\n"), source);
 });
 
@@ -120,4 +129,93 @@ test("every chunk is sent in order and the total input limit includes table cell
     (error) =>
       error instanceof DocumentSimplificationError && error.statusCode === 413,
   );
+});
+
+test("a timed-out section is split and retried without repeating completed sections", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  const progress = [];
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      const timeout = new Error("request timed out");
+      timeout.name = "TimeoutError";
+      throw timeout;
+    }
+    return modelResponse(`Simplified retry part ${requestCount - 1}.`);
+  };
+
+  try {
+    const sourceText = "A long source sentence. ".repeat(500);
+    const result = await simplifyDocumentInChunks({
+      ...input({ sourceText }),
+      onProgress: (event) => progress.push(event),
+    });
+
+    assert.ok(requestCount > 2, "the retry should use more than one smaller request");
+    assert.equal(progress.filter((event) => event.type === "section_retrying").length, 1);
+    assert.equal(progress.filter((event) => event.type === "section_completed").length, 1);
+    assert.match(result.result, /Simplified retry part 1/);
+    assert.match(result.result, /Simplified retry part 2/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a timeout while reading the model response body also retries the section", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        ok: true,
+        json: async () => {
+          const timeout = new Error("response body timed out");
+          timeout.name = "TimeoutError";
+          throw timeout;
+        },
+      };
+    }
+    return modelResponse("A clearer version of this section.");
+  };
+
+  try {
+    const result = await simplifyDocumentInChunks(
+      input({ sourceText: "A source paragraph. ".repeat(100) }),
+    );
+
+    assert.ok(requestCount > 1);
+    assert.match(result.result, /A clearer version/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a table larger than one section is retained unchanged instead of sent as an oversized request", async () => {
+  const originalFetch = globalThis.fetch;
+  const token = "[[SOURCE_TABLE_1]]";
+  let sentTables;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const serialized = body.input.match(
+      /SOURCE PART AND TABLE CELLS:\n([\s\S]*?)\n\nReturn valid JSON only/,
+    )?.[1];
+    sentTables = JSON.parse(serialized);
+    return modelResponse(`Readable introduction.\n\n${token}`);
+  };
+
+  try {
+    const result = await simplifyDocumentInChunks(input({
+      sourceText: `Original introduction.\n\n${token}`,
+      tables: [{ token, rows: [["Long value", "x".repeat(15_000)]] }],
+    }));
+
+    assert.deepEqual(sentTables.tables, []);
+    assert.deepEqual(result.tables, []);
+    assert.deepEqual(result.unchangedTables, [token]);
+    assert.equal(result.result.includes(token), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

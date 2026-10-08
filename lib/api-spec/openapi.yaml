@@ -71,6 +71,74 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /documents/simplification-jobs:
+    post:
+      operationId: startDocumentSimplificationJob
+      tags: [simplification]
+      summary: Start a streamed PDF simplification job
+      description: Starts an ordered PDF rewrite and returns a job ID for receiving progress and completed sections.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimplifyInput"
+      responses:
+        "202":
+          description: Simplification job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentSimplificationJobCreated"
+        "400":
+          description: Invalid simplification input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: Prepared PDF content exceeds the character limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Too many PDF simplification jobs are already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Grok API is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /documents/simplification-jobs/{jobId}/events:
+    get:
+      operationId: streamDocumentSimplificationJob
+      tags: [simplification]
+      summary: Receive PDF simplification progress
+      description: Streams ordered progress events, completed sections, and final results. Reconnects replay events after the last received event ID.
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server-sent progress events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: Simplification job not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /documents/extract:
     post:
       operationId: extractPdfDocument
@@ -158,6 +226,17 @@ components:
       required:
         - result
         - model
+    DocumentSimplificationJobCreated:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [queued]
+      required:
+        - jobId
+        - status
     DocumentTable:
       type: object
       properties:

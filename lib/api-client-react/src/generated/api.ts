@@ -22,6 +22,7 @@ import type {
 import type {
   ApiError,
   DocumentExtraction,
+  DocumentSimplificationJobCreated,
   HealthStatus,
   SimplifyInput,
   SimplifyResult
@@ -220,6 +221,173 @@ export const useSimplifyText = <TError = ErrorType<ApiError>,
       > => {
       return useMutation(getSimplifyTextMutationOptions(options));
     }
+
+export const getStartDocumentSimplificationJobUrl = () => {
+
+
+
+
+  return `/api/documents/simplification-jobs`
+}
+
+/**
+ * Starts an ordered PDF rewrite and returns a job ID for receiving progress and completed sections.
+ * @summary Start a streamed PDF simplification job
+ */
+export const startDocumentSimplificationJob = async (simplifyInput: SimplifyInput, options?: Parameters<typeof customFetch>[1]): Promise<DocumentSimplificationJobCreated> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<DocumentSimplificationJobCreated>(getStartDocumentSimplificationJobUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(simplifyInput)
+  }
+);}
+
+
+
+
+
+export const getStartDocumentSimplificationJobMutationKey = () => ['startDocumentSimplificationJob'] as const;
+
+export const getStartDocumentSimplificationJobMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDocumentSimplificationJob>>, TError,StartDocumentSimplificationJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startDocumentSimplificationJob>>, TError,StartDocumentSimplificationJobMutationVariables, TContext> => {
+
+const mutationKey = getStartDocumentSimplificationJobMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDocumentSimplificationJob>>, StartDocumentSimplificationJobMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  startDocumentSimplificationJob(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartDocumentSimplificationJobMutationResult = NonNullable<Awaited<ReturnType<typeof startDocumentSimplificationJob>>>
+    export type StartDocumentSimplificationJobMutationBody = BodyType<SimplifyInput>
+    export type StartDocumentSimplificationJobMutationError = ErrorType<ApiError>
+    export type StartDocumentSimplificationJobMutationVariables = {data: BodyType<SimplifyInput>}
+
+    /**
+ * @summary Start a streamed PDF simplification job
+ */
+export const useStartDocumentSimplificationJob = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDocumentSimplificationJob>>, TError,StartDocumentSimplificationJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startDocumentSimplificationJob>>,
+        TError,
+        StartDocumentSimplificationJobMutationVariables,
+        TContext
+      > => {
+      return useMutation(getStartDocumentSimplificationJobMutationOptions(options));
+    }
+
+export const getStreamDocumentSimplificationJobUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/documents/simplification-jobs/${jobId}/events`
+}
+
+/**
+ * Streams ordered progress events, completed sections, and final results. Reconnects replay events after the last received event ID.
+ * @summary Receive PDF simplification progress
+ */
+export const streamDocumentSimplificationJob = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getStreamDocumentSimplificationJobUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getStreamDocumentSimplificationJobQueryKey = (jobId: string,) => {
+    return [
+    `/api/documents/simplification-jobs/${jobId}/events`
+    ] as const;
+    }
+
+
+export const getStreamDocumentSimplificationJobQueryOptions = <TData = Awaited<ReturnType<typeof streamDocumentSimplificationJob>>, TError = ErrorType<ApiError>>(jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamDocumentSimplificationJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getStreamDocumentSimplificationJobQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof streamDocumentSimplificationJob>>> = ({ signal }) => streamDocumentSimplificationJob(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof streamDocumentSimplificationJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type StreamDocumentSimplificationJobQueryResult = NonNullable<Awaited<ReturnType<typeof streamDocumentSimplificationJob>>>
+export type StreamDocumentSimplificationJobQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Receive PDF simplification progress
+ */
+
+export function useStreamDocumentSimplificationJob<TData = Awaited<ReturnType<typeof streamDocumentSimplificationJob>>, TError = ErrorType<ApiError>>(
+ jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamDocumentSimplificationJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getStreamDocumentSimplificationJobQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getExtractPdfDocumentUrl = () => {
 

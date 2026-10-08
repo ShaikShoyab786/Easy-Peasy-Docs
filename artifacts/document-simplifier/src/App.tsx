@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useHealthCheck, useSimplifyText, useExtractPdfDocument, getHealthCheckQueryKey } from '@workspace/api-client-react';
-import type { DocumentExtraction, SimplifyResult } from '@workspace/api-client-react';
+import type { DocumentExtraction } from '@workspace/api-client-react';
 import { ArrowDown, ArrowRight, Check, Clipboard, FileText, RotateCcw, Sparkles, X, Upload, FileSearch, Image as ImageIcon, Table2, ChevronRight } from 'lucide-react';
 import { Link, Route, Switch } from 'wouter';
 import { DOCUMENT_SIMPLIFICATION_PROMPT, serializeExtraction, SimplifiedDocument } from './document-simplification';
+import { useDocumentSimplificationJob } from './use-document-simplification-job';
 
 const queryClient = new QueryClient();
 const DEFAULT_PROMPT = 'Please explain the above in easy layman language with examples';
@@ -307,10 +308,10 @@ function Documents() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState('');
-  const [simplifiedResult, setSimplifiedResult] = useState<SimplifyResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const simplificationRequestId = useRef(0);
-  const simplify = useSimplifyText();
+  const documentJob = useDocumentSimplificationJob();
+  const jobState = documentJob.state;
+  const isJobWorking = jobState.status === 'starting' || jobState.status === 'running';
   const extract = useExtractPdfDocument({
     request: {
       headers: selectedFile ? { 'X-File-Name': selectedFile.name } : undefined,
@@ -331,9 +332,7 @@ function Documents() {
       return;
     }
     setFileError('');
-    simplificationRequestId.current += 1;
-    setSimplifiedResult(null);
-    simplify.reset();
+    documentJob.clear();
     setSelectedFile(file);
     setExtraction(null);
     extract.reset();
@@ -351,12 +350,10 @@ function Documents() {
   }
 
   function resetDocument() {
-    simplificationRequestId.current += 1;
+    documentJob.clear();
     setExtraction(null);
     setSelectedFile(null);
     setFileError('');
-    setSimplifiedResult(null);
-    simplify.reset();
     extract.reset();
   }
 
@@ -365,26 +362,36 @@ function Documents() {
   const serialized = useMemo(() => extraction ? serializeExtraction(extraction) : null, [extraction]);
   const sourceLength = serialized?.sourceLength ?? 0;
   const isSourceOverLimit = sourceLength > PDF_SIMPLIFICATION_CHARACTER_LIMIT;
-  const canSimplify = hasContent && sourceLength > 0 && !isSourceOverLimit && !simplify.isPending;
+  const canSimplify = hasContent && sourceLength > 0 && !isSourceOverLimit && !isJobWorking;
 
   function generateDocument() {
     if (!canSimplify || !serialized) return;
-    const requestId = ++simplificationRequestId.current;
-    setSimplifiedResult(null);
-    simplify.mutate(
-      { data: {
+    void documentJob.start({
         sourceText: serialized.sourceText,
         prompt: DOCUMENT_SIMPLIFICATION_PROMPT,
         documentMode: true,
         tables: serialized.tables,
-      } },
-      {
-        onSuccess: (response) => {
-          if (requestId === simplificationRequestId.current) setSimplifiedResult(response);
-        },
-      },
-    );
+      });
   }
+
+  const jobProgress = jobState.totalCharacters > 0
+    ? Math.min(100, Math.round((jobState.processedCharacters / jobState.totalCharacters) * 100))
+    : 0;
+  const progressStageLabel = jobState.stage === 'model'
+    ? 'Preparing the rewrite'
+    : jobState.stage === 'table_validation'
+      ? 'Checking table values'
+      : jobState.stage === 'finalize'
+        ? 'Finalizing the document'
+        : 'Rewriting sections';
+  const partialDocumentPreview = jobState.partialResult ? (
+    <SimplifiedDocument
+      content={jobState.partialResult}
+      elements={serialized?.elements ?? {}}
+      tables={jobState.tables}
+      unchangedTables={jobState.unchangedTables}
+    />
+  ) : null;
 
   return (
     <div className="lab-shell document-page">
@@ -597,7 +604,7 @@ function Documents() {
                       className="group mt-5 inline-flex min-h-[43px] w-full items-center justify-center gap-2 rounded-[9px] bg-[#29483d] px-4 text-[12px] font-semibold text-[#f5f5e9] shadow-[0_3px_0_#1c372e] transition-all hover:bg-[#36584b] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:bg-[#a4ada2] disabled:shadow-none"
                       data-testid="button-simplify-pdf"
                     >
-                      {simplify.isPending ? (
+                      {isJobWorking ? (
                         <>
                           <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-[#c5d0c2] border-t-transparent" />
                           Simplifying document
@@ -619,44 +626,91 @@ function Documents() {
                       <span className="mono text-[10px] tracking-[.12em] text-[#9b9a87]">02</span>
                       <h2 className="text-[14px] font-bold tracking-[-.02em] text-[#31433a]">Simplified document</h2>
                     </div>
-                    {simplifiedResult && <span className="mono rounded-full bg-[#eef1e7] px-2.5 py-1 text-[9px] uppercase tracking-[.1em] text-[#6d8066]" data-testid="status-simplification-success">Ready</span>}
+                    {jobState.status === 'completed' && <span className="mono rounded-full bg-[#eef1e7] px-2.5 py-1 text-[9px] uppercase tracking-[.1em] text-[#6d8066]" data-testid="status-simplification-success">Ready</span>}
+                    {jobState.status === 'failed' && jobState.partialResult && <span className="mono rounded-full bg-[#faf1eb] px-2.5 py-1 text-[9px] uppercase tracking-[.1em] text-[#995c4b]">Partial</span>}
+                    {isJobWorking && <span className="mono rounded-full bg-[#f0f1e7] px-2.5 py-1 text-[9px] uppercase tracking-[.1em] text-[#6d8066]">Working</span>}
                   </div>
                   <div className="flex flex-1 flex-col px-5 py-5 sm:px-6">
-                    {simplify.isPending ? (
-                      <div className="flex flex-1 flex-col gap-4 pt-1" role="status" aria-label="Simplifying PDF" data-testid="status-simplifying-pdf">
-                        <div className="flex items-center gap-2 pb-1">
-                          <span className="h-2 w-2 animate-pulse rounded-full bg-[#91a575]" />
-                          <span className="mono text-[9px] uppercase tracking-[.12em] text-[#879080]">Reading for clarity</span>
-                        </div>
-                        <div className="skeleton-line w-[92%]" />
-                        <div className="skeleton-line w-[84%]" />
-                        <div className="skeleton-line w-[71%]" />
-                        <div className="skeleton-line mt-3 w-[88%]" />
-                        <div className="skeleton-line w-[58%]" />
+                    {extract.isPending ? (
+                      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center" role="status" aria-label="Extracting PDF" data-testid="status-extracting-pdf">
+                        <span className="mb-3 h-4 w-4 animate-spin rounded-full border-2 border-[#91a575] border-t-transparent" />
+                        <span className="mono text-[9px] uppercase tracking-[.12em] text-[#879080]">Extracting PDF content</span>
+                        <p className="mt-2 max-w-[310px] text-[11px] leading-[1.7] text-[#8b9187]">Preparing selectable text, tables, scanned pages, and embedded images.</p>
                       </div>
-                    ) : simplify.isError ? (
-                      <div className="flex flex-1 flex-col items-center justify-center px-3 py-4 text-center" data-testid="status-simplification-error">
-                        <div className="mb-3 grid h-10 w-10 place-items-center rounded-full border border-[#e3d3c4] bg-[#f8eee4] text-[#a9604d]"><RotateCcw size={16} strokeWidth={1.6} /></div>
-                        <h3 className="serif text-[22px] tracking-[-.02em] text-[#38483e]">The rewrite didn’t come through.</h3>
-                        <p className="mt-2 max-w-[380px] text-[11px] leading-[1.65] text-[#788078]">
-                          {simplify.error instanceof Error ? simplify.error.message : 'Check your connection and try again. The original extraction is still here.'}
-                        </p>
-                        <button type="button" onClick={generateDocument} disabled={!canSimplify} className="mt-4 inline-flex min-h-[35px] items-center gap-2 rounded-md border border-[#d8dacd] bg-[#fbfaf5] px-3.5 text-[11px] font-semibold text-[#526255] transition-colors hover:bg-[#f0f1e7] disabled:opacity-50" data-testid="button-retry-simplification">
-                          <RotateCcw size={12} /> Try again
+                    ) : isJobWorking ? (
+                      <div className="flex flex-1 flex-col gap-4 pt-1" role="status" aria-label="Simplifying PDF" aria-live="polite" data-testid="status-simplifying-pdf">
+                        <div className="flex items-start gap-2">
+                          <span className="mt-0.5 h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#91a575]" />
+                          <div className="min-w-0 flex-1">
+                            <div className="mono text-[9px] uppercase tracking-[.12em] text-[#879080]">{progressStageLabel}</div>
+                            <p className="mt-1 text-[11px] leading-[1.6] text-[#667367]" data-testid="text-job-progress-message">{jobState.message}</p>
+                          </div>
+                        </div>
+                        {jobState.totalSections > 0 ? (
+                          <div>
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <span className="mono text-[9px] tabular-nums uppercase tracking-[.1em] text-[#7f897d]" data-testid="text-section-progress">
+                                {jobState.completedSections} of {jobState.totalSections} sections complete
+                              </span>
+                              <span className="mono text-[9px] tabular-nums text-[#7f897d]">{jobProgress}%</span>
+                            </div>
+                            <div
+                              className="h-1.5 overflow-hidden rounded-full bg-[#e9e9df]"
+                              role="progressbar"
+                              aria-label="Document sections processed"
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={jobProgress}
+                            >
+                              <div className="h-full rounded-full bg-[#82966f] transition-[width] duration-500" style={{ width: `${jobProgress}%` }} />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="skeleton-line w-[68%]" />
+                        )}
+                        {jobState.isReconnecting && (
+                          <p className="rounded-[8px] border border-[#e8e4d7] bg-[#f8f7f0] px-3 py-2 text-[10px] leading-[1.6] text-[#737d73]" role="status" data-testid="status-progress-reconnecting">
+                            Reconnecting to progress updates. Completed sections remain saved.
+                          </p>
+                        )}
+                        {partialDocumentPreview ? (
+                          <div className="max-h-[520px] overflow-y-auto rounded-[10px] border border-[#e8e6dc] bg-[#fffefa] px-4 py-3" data-testid="partial-simplified-document">
+                            <div className="mono mb-3 text-[9px] uppercase tracking-[.1em] text-[#879080]">Completed sections</div>
+                            {partialDocumentPreview}
+                          </div>
+                        ) : (
+                          <p className="rounded-[9px] border border-dashed border-[#dfdfd2] px-3.5 py-3 text-[11px] leading-[1.65] text-[#899087]">
+                            The first section will appear here as soon as it passes its checks.
+                          </p>
+                        )}
+                      </div>
+                    ) : jobState.status === 'failed' ? (
+                      <div className="flex flex-1 flex-col gap-4" data-testid="status-simplification-error">
+                        <div className="rounded-[9px] border border-[#ead5c9] bg-[#faf1eb] px-3.5 py-3">
+                          <div className="flex items-center gap-2 text-[#995c4b]">
+                            <RotateCcw size={13} strokeWidth={1.6} />
+                            <span className="mono text-[9px] uppercase tracking-[.1em]">Rewrite paused</span>
+                          </div>
+                          <p className="mt-2 text-[11px] leading-[1.65] text-[#825f54]">{jobState.error}</p>
+                          {jobState.partialResult && <p className="mt-2 text-[10px] leading-[1.6] text-[#825f54]">Completed sections are still shown below. Try again to restart the full document.</p>}
+                        </div>
+                        {partialDocumentPreview && (
+                          <div className="max-h-[520px] overflow-y-auto rounded-[10px] border border-[#e8e6dc] bg-[#fffefa] px-4 py-3" data-testid="partial-simplified-document">
+                            <div className="mono mb-3 text-[9px] uppercase tracking-[.1em] text-[#879080]">Completed sections</div>
+                            {partialDocumentPreview}
+                          </div>
+                        )}
+                        <button type="button" onClick={generateDocument} disabled={!canSimplify} className="mt-auto inline-flex min-h-[35px] items-center justify-center gap-2 self-start rounded-md border border-[#d8dacd] bg-[#fbfaf5] px-3.5 text-[11px] font-semibold text-[#526255] transition-colors hover:bg-[#f0f1e7] disabled:opacity-50" data-testid="button-retry-simplification">
+                          <RotateCcw size={12} /> Try the full document again
                         </button>
                       </div>
-                    ) : simplifiedResult ? (
+                    ) : jobState.status === 'completed' ? (
                       <>
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <span className="mono flex items-center gap-2 text-[9px] uppercase tracking-[.13em] text-[#829079]"><Check size={12} /> Plain-language version</span>
-                          <span className="mono max-w-[52%] truncate text-[9px] tracking-[.04em] text-[#a0a397]" title={simplifiedResult.model} data-testid="text-simplification-model">{simplifiedResult.model}</span>
+                          <span className="mono max-w-[52%] truncate text-[9px] tracking-[.04em] text-[#a0a397]" title={jobState.model ?? ''} data-testid="text-simplification-model">{jobState.model}</span>
                         </div>
-                        <SimplifiedDocument
-                          content={simplifiedResult.result}
-                          elements={serialized?.elements ?? {}}
-                          tables={simplifiedResult.tables ?? []}
-                          unchangedTables={simplifiedResult.unchangedTables ?? []}
-                        />
+                        {partialDocumentPreview}
                       </>
                     ) : (
                       <div className="flex flex-1 flex-col items-center justify-center py-8 text-center" data-testid="empty-simplified-document">
@@ -671,7 +725,7 @@ function Documents() {
                   </div>
                   <div className="flex min-h-[43px] items-center justify-between border-t border-[#e3e1d6] bg-[#f8f7f0] px-5 sm:px-6">
                     <span className="mono text-[9px] uppercase tracking-[.12em] text-[#999d91]">Generated preview · Source preserved</span>
-                    {simplifiedResult && <span className="mono text-[9px] tabular-nums text-[#858d84]" data-testid="text-simplified-character-count">{simplifiedResult.result.length.toLocaleString()} characters</span>}
+                    {jobState.partialResult && <span className="mono text-[9px] tabular-nums text-[#858d84]" data-testid="text-simplified-character-count">{jobState.partialResult.length.toLocaleString()} characters</span>}
                   </div>
                 </article>
               </section>

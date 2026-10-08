@@ -55,6 +55,46 @@ export const SimplifyTextResponse = zod.object({
 
 
 /**
+ * Starts an ordered PDF rewrite and returns a job ID for receiving progress and completed sections.
+ * @summary Start a streamed PDF simplification job
+ */
+export const startDocumentSimplificationJobBodySourceTextMax = 100000;
+
+export const startDocumentSimplificationJobBodyPromptMax = 2000;
+
+export const startDocumentSimplificationJobBodyTablesItemTokenRegExp = new RegExp('^\\[\\[SOURCE_TABLE_\\d+\\]\\]$');
+export const startDocumentSimplificationJobBodyTablesMax = 150;
+
+
+
+export const StartDocumentSimplificationJobBody = zod.object({
+  "sourceText": zod.string().min(1).max(startDocumentSimplificationJobBodySourceTextMax),
+  "prompt": zod.string().min(1).max(startDocumentSimplificationJobBodyPromptMax),
+  "documentMode": zod.boolean().optional().describe('Processes PDF content in ordered chunks and returns rewritten tables separately.'),
+  "tables": zod.array(zod.object({
+  "token": zod.string().regex(startDocumentSimplificationJobBodyTablesItemTokenRegExp),
+  "rows": zod.array(zod.array(zod.string()))
+})).max(startDocumentSimplificationJobBodyTablesMax).optional()
+})
+
+export const StartDocumentSimplificationJobResponse = zod.object({
+  "jobId": zod.string(),
+  "status": zod.enum(['queued'])
+})
+
+
+/**
+ * Streams ordered progress events, completed sections, and final results. Reconnects replay events after the last received event ID.
+ * @summary Receive PDF simplification progress
+ */
+export const StreamDocumentSimplificationJobParams = zod.object({
+  "jobId": zod.coerce.string()
+})
+
+export const StreamDocumentSimplificationJobResponse = zod.unknown()
+
+
+/**
  * Extracts selectable text, OCR text from scans and embedded images, tables, and image previews while excluding index pages, page-number text, and author bylines on the first and last pages.
  * @summary Extract reviewable content from a PDF
  */

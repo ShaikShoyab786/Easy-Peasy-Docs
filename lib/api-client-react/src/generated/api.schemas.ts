@@ -39,6 +39,18 @@ export interface SimplifyResult {
   unchangedTables?: string[];
 }
 
+export type DocumentSimplificationJobCreatedStatus = typeof DocumentSimplificationJobCreatedStatus[keyof typeof DocumentSimplificationJobCreatedStatus];
+
+
+export const DocumentSimplificationJobCreatedStatus = {
+  queued: 'queued',
+} as const;
+
+export interface DocumentSimplificationJobCreated {
+  jobId: string;
+  status: DocumentSimplificationJobCreatedStatus;
+}
+
 export interface ApiError {
   error: string;
 }

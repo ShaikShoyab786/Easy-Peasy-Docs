@@ -2,8 +2,20 @@ import { Router, type IRouter } from "express";
 import { SimplifyTextBody, SimplifyTextResponse } from "@workspace/api-zod";
 import {
   DocumentSimplificationError,
+  getDocumentCharacterCount,
   simplifyDocumentInChunks,
+  type DocumentSimplificationProgress,
 } from "../lib/document-simplifier";
+import {
+  createDocumentSimplificationJob,
+  DocumentJobCapacityError,
+  getDocumentSimplificationJob,
+  getDocumentSimplificationJobEventsAfter,
+  publishDocumentSimplificationJobEvent,
+  setDocumentSimplificationJobStatus,
+  subscribeToDocumentSimplificationJob,
+  type DocumentSimplificationJobEvent,
+} from "../lib/document-simplification-jobs";
 
 const router: IRouter = Router();
 const XAI_API_BASE = "https://api.x.ai/v1";
@@ -147,6 +159,231 @@ async function discoverGrokModel(apiKey: string): Promise<ModelDiscovery> {
       .map((item) => (typeof item.id === "string" ? item.id : "unknown")),
   };
 }
+
+function sendJobEvent(
+  res: import("express").Response,
+  event: DocumentSimplificationJobEvent,
+): void {
+  res.write(`id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+}
+
+function startDocumentSimplificationWorker({
+  jobId,
+  apiKey,
+  sourceText,
+  prompt,
+  tables,
+  log,
+}: {
+  jobId: string;
+  apiKey: string;
+  sourceText: string;
+  prompt: string;
+  tables: NonNullable<ReturnType<typeof SimplifyTextBody.parse>["tables"]>;
+  log: { warn: (context: object, message: string) => void; error: (context: object, message: string) => void };
+}): void {
+  void (async () => {
+    let completedSections = 0;
+    let totalSections = 0;
+    try {
+      publishDocumentSimplificationJobEvent(jobId, {
+        type: "stage",
+        stage: "model",
+        message: "Preparing the rewrite.",
+      });
+      const discovery = await discoverGrokModel(apiKey);
+      if (!discovery.model) {
+        log.warn(
+          {
+            upstreamStatus: discovery.upstreamStatus,
+            upstreamMessage: discovery.upstreamMessage,
+            advertisedModels: discovery.advertisedModels,
+          },
+          "Could not discover a Grok text model for a PDF job",
+        );
+        throw new DocumentSimplificationError(
+          discovery.upstreamMessage &&
+            /incorrect api key|invalid api key/i.test(discovery.upstreamMessage)
+            ? "xAI rejected XAI_API_KEY. Check the configured xAI secret."
+            : "No Grok text model is available through the xAI API.",
+          503,
+        );
+      }
+
+      publishDocumentSimplificationJobEvent(jobId, {
+        type: "stage",
+        stage: "rewrite",
+        message: "Rewriting the document in ordered sections.",
+      });
+      const result = await simplifyDocumentInChunks({
+        apiKey,
+        model: discovery.model,
+        sourceText,
+        prompt,
+        tables,
+        onProgress: (event: DocumentSimplificationProgress) => {
+          if (event.type === "started") {
+            totalSections = event.totalSections;
+          }
+          if (event.type === "section_completed") {
+            completedSections = event.completedSections;
+          }
+          publishDocumentSimplificationJobEvent(jobId, event);
+        },
+      });
+
+      publishDocumentSimplificationJobEvent(jobId, {
+        type: "completed",
+        result: result.result,
+        tables: result.tables,
+        unchangedTables: result.unchangedTables,
+        model: discovery.model,
+      });
+      setDocumentSimplificationJobStatus(jobId, "completed");
+    } catch (error) {
+      const message =
+        error instanceof DocumentSimplificationError
+          ? error.message
+          : error instanceof Error && error.name === "TimeoutError"
+            ? "Grok took too long to prepare this rewrite. Please try again."
+            : "Could not complete the PDF rewrite. Check your connection and try again.";
+      log.error(
+        {
+          err: error,
+          jobId,
+          completedSections,
+          totalSections,
+        },
+        "PDF simplification job failed",
+      );
+      publishDocumentSimplificationJobEvent(jobId, {
+        type: "failed",
+        message,
+        completedSections,
+        totalSections,
+      });
+      setDocumentSimplificationJobStatus(jobId, "failed");
+    }
+  })();
+}
+
+router.post("/documents/simplification-jobs", (req, res): void => {
+  const parsed = SimplifyTextBody.safeParse(req.body);
+  if (!parsed.success || !parsed.data.sourceText.trim() || !parsed.data.prompt.trim()) {
+    res.status(400).json({ error: "Add text and a prompt before generating." });
+    return;
+  }
+
+  const { sourceText, prompt } = parsed.data;
+  const tables = parsed.data.tables ?? [];
+  if (getDocumentCharacterCount(sourceText, tables) > 100_000) {
+    res.status(413).json({
+      error: "The prepared PDF content exceeds the 100,000-character limit.",
+    });
+    return;
+  }
+
+  const apiKey = process.env.XAI_API_KEY?.trim();
+  if (!apiKey) {
+    res.status(503).json({
+      error: "Add XAI_API_KEY to Replit Secrets, then retry generation.",
+    });
+    return;
+  }
+
+  let job;
+  try {
+    job = createDocumentSimplificationJob();
+  } catch (error) {
+    if (error instanceof DocumentJobCapacityError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+
+  const log = req.log;
+  res.status(202).json({ jobId: job.id, status: "queued" });
+  setImmediate(() => {
+    startDocumentSimplificationWorker({
+      jobId: job.id,
+      apiKey,
+      sourceText,
+      prompt,
+      tables,
+      log,
+    });
+    setDocumentSimplificationJobStatus(job.id, "running");
+  });
+});
+
+router.get("/documents/simplification-jobs/:jobId/events", (req, res): void => {
+  const jobId = Array.isArray(req.params.jobId)
+    ? req.params.jobId[0]
+    : req.params.jobId;
+  const job = getDocumentSimplificationJob(jobId);
+  if (!job) {
+    res.status(404).json({ error: "This simplification job was not found or has expired." });
+    return;
+  }
+
+  const lastEventHeader = req.get("Last-Event-ID");
+  const parsedLastEventId = Number.parseInt(lastEventHeader ?? "0", 10);
+  let cursor = Number.isFinite(parsedLastEventId) && parsedLastEventId > 0
+    ? parsedLastEventId
+    : 0;
+  let closed = false;
+  let buffering = true;
+  const pending: DocumentSimplificationJobEvent[] = [];
+  let unsubscribe: (() => void) | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+  res.write("retry: 2500\n\n");
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+    unsubscribe?.();
+  };
+  const writeEvent = (event: DocumentSimplificationJobEvent) => {
+    if (closed || event.id <= cursor) return;
+    sendJobEvent(res, event);
+    cursor = event.id;
+    if (event.type === "completed" || event.type === "failed") {
+      cleanup();
+      res.end();
+    }
+  };
+  unsubscribe = subscribeToDocumentSimplificationJob(jobId, (event) => {
+    if (buffering) pending.push(event);
+    else writeEvent(event);
+  });
+
+  for (const event of getDocumentSimplificationJobEventsAfter(jobId, cursor)) {
+    if (closed) break;
+    sendJobEvent(res, event);
+    cursor = event.id;
+  }
+  buffering = false;
+  pending.sort((left, right) => left.id - right.id).forEach(writeEvent);
+
+  if (!closed && (job.status === "completed" || job.status === "failed")) {
+    cleanup();
+    res.end();
+  } else if (!closed) {
+    heartbeat = setInterval(() => {
+      if (!closed) res.write(": keep-alive\n\n");
+    }, 15_000);
+    res.on("close", cleanup);
+  }
+});
 
 router.post("/simplify", async (req, res): Promise<void> => {
   const parsed = SimplifyTextBody.safeParse(req.body);

@@ -1,3 +1,4 @@
 - [Plain Language Lab scope](plain-language-lab-scope.md) — PDF simplification uses ordered content, local OCR, and value-checked tables; export and Q&A remain deferred.
+- [PDF simplification job recovery](pdf-simplification-job-recovery.md) — jobs are process-local; SSE replay reconnects within the running API process, not after restarts.
 - [PyMuPDF stdout](pymupdf-stdout.md) — keep library diagnostics off stdout when a Python subprocess returns machine-readable JSON.
 - [Artifact workflow stale listeners](artifact-workflow-stale-listeners.md) — check listeners after `EADDRINUSE`; a failed managed workflow may leave its earlier process group serving.
