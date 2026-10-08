@@ -1,7 +1,4 @@
-- [Plain Language Lab scope](plain-language-lab-scope.md) — PDF simplification uses ordered content, local OCR, and value-checked tables; export and Q&A remain deferred.
+- [Legacy document data retention](legacy-document-data-retention.md) — PDF screens and APIs are retired, but existing PDF metadata and objects must remain unless their conversation is explicitly deleted.
 - [Anonymous chat scope](anonymous-chat-scope.md) — general chat has no app-authored hidden prompt; guest history stays local and separate from PDF simplification.
-- [Grok PDF response contract](grok-pdf-response-contract.md) — schema-constrain chunk output, avoid synthetic element-marker examples, and retain original tables on unsafe rewrites.
-- [PDF simplification job recovery](pdf-simplification-job-recovery.md) — jobs are process-local; SSE replay reconnects within the running API process, not after restarts.
-- [PyMuPDF stdout](pymupdf-stdout.md) — keep library diagnostics off stdout when a Python subprocess returns machine-readable JSON.
 - [Artifact workflow stale listeners](artifact-workflow-stale-listeners.md) — check listeners after `EADDRINUSE`; a failed managed workflow may leave its earlier process group serving.
 - [OpenAPI codegen names](openapi-codegen-names.md) — give request-body components distinct names so generated operation types do not collide in exports.

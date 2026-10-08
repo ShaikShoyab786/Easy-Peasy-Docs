@@ -182,9 +182,9 @@ router.delete(
         await removeStoredObject(document.objectPath);
       }
     } catch (error) {
-      logger.error({ err: error }, "Could not remove conversation PDF objects");
+      logger.error({ err: error }, "Could not remove conversation-associated legacy files");
       res.status(503).json({
-        error: "Stored PDFs could not be deleted, so the conversation was kept.",
+        error: "An associated file could not be removed, so the conversation was kept.",
       });
       return;
     }
