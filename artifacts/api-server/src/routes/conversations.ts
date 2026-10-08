@@ -2,6 +2,10 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
+  SendConversationChatTurnBody,
+  SendConversationChatTurnResponse,
+} from "@workspace/api-zod";
+import {
   conversationsTable,
   documentsTable,
   messagesTable,
@@ -9,6 +13,11 @@ import {
 import { z } from "zod/v4";
 import { logger } from "../lib/logger";
 import { removeStoredObject } from "../lib/storedDocuments";
+import {
+  generateGrokChatReply,
+  GrokChatError,
+  type AssistantHistoryMessage,
+} from "../lib/xai";
 import {
   getAuthenticatedUserId,
   requireAuth,
@@ -34,6 +43,9 @@ const createMessageSchema = z
   })
   .strict();
 
+const MAX_CHAT_HISTORY_MESSAGES = 32;
+const MAX_CHAT_HISTORY_CHARACTERS = 20_000;
+
 function getUuidParam(value: string | string[] | undefined): string | null {
   const candidate = Array.isArray(value) ? value[0] : value;
   return typeof candidate === "string" &&
@@ -53,6 +65,29 @@ async function getOwnedConversation(conversationId: string, ownerId: string) {
       ),
     );
   return conversation;
+}
+
+function selectChatHistory(
+  newestFirstMessages: AssistantHistoryMessage[],
+): AssistantHistoryMessage[] {
+  const selected: AssistantHistoryMessage[] = [];
+  let characters = 0;
+
+  for (const message of newestFirstMessages) {
+    if (selected.length >= MAX_CHAT_HISTORY_MESSAGES) break;
+    if (characters + message.content.length > MAX_CHAT_HISTORY_CHARACTERS) break;
+    selected.push({ role: message.role, content: message.content });
+    characters += message.content.length;
+  }
+
+  return selected.reverse();
+}
+
+function titleFromFirstMessage(content: string): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  return normalized.length > 72
+    ? `${normalized.slice(0, 71).trimEnd()}…`
+    : normalized;
 }
 
 router.get("/conversations", requireAuth, async (req, res) => {
@@ -233,6 +268,138 @@ router.post(
       .where(eq(conversationsTable.id, conversation.id));
 
     res.status(201).json(message);
+  },
+);
+
+router.post(
+  "/conversations/:conversationId/chat",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const conversationId = getUuidParam(req.params.conversationId);
+    if (!conversationId) {
+      res.status(404).json({ error: "Conversation not found." });
+      return;
+    }
+
+    const parsed = SendConversationChatTurnBody.safeParse(req.body);
+    const content = parsed.success ? parsed.data.content.trim() : "";
+    if (!parsed.success || !content) {
+      res.status(400).json({
+        error: "Message content must be between 1 and 6000 characters.",
+      });
+      return;
+    }
+
+    const ownerId = getAuthenticatedUserId(req);
+    const conversation = await getOwnedConversation(conversationId, ownerId);
+    if (!conversation) {
+      res.status(404).json({ error: "Conversation not found." });
+      return;
+    }
+
+    const apiKey = process.env.XAI_API_KEY?.trim();
+    if (!apiKey) {
+      res.status(503).json({
+        error: "The assistant service is temporarily unavailable. Please try again.",
+      });
+      return;
+    }
+
+    const previousMessages = await db
+      .select({
+        role: messagesTable.role,
+        content: messagesTable.content,
+      })
+      .from(messagesTable)
+      .where(eq(messagesTable.conversationId, conversation.id))
+      .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
+      .limit(MAX_CHAT_HISTORY_MESSAGES);
+
+    let assistantReply: string;
+    try {
+      assistantReply = await generateGrokChatReply(apiKey, [
+        ...selectChatHistory(previousMessages),
+        { role: "user", content },
+      ]);
+    } catch (error) {
+      if (error instanceof GrokChatError) {
+        req.log.warn(
+          { statusCode: error.statusCode, upstreamStatus: error.upstreamStatus },
+          "Grok could not complete a conversation turn",
+        );
+        res.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+
+      req.log.error(
+        { errorName: error instanceof Error ? error.name : "UnknownError" },
+        "Conversation model request failed",
+      );
+      res.status(503).json({
+        error: "The assistant service is temporarily unavailable. Please try again.",
+      });
+      return;
+    }
+
+    const storedTurn = await db.transaction(async (tx) => {
+      const [currentConversation] = await tx
+        .select({
+          id: conversationsTable.id,
+          title: conversationsTable.title,
+        })
+        .from(conversationsTable)
+        .where(
+          and(
+            eq(conversationsTable.id, conversation.id),
+            eq(conversationsTable.ownerId, ownerId),
+          ),
+        )
+        .for("update");
+
+      if (!currentConversation) return null;
+
+      const userCreatedAt = new Date();
+      const assistantCreatedAt = new Date(userCreatedAt.getTime() + 1);
+      const [userMessage] = await tx
+        .insert(messagesTable)
+        .values({
+          conversationId: conversation.id,
+          role: "user",
+          content,
+          createdAt: userCreatedAt,
+        })
+        .returning();
+      const [assistantMessage] = await tx
+        .insert(messagesTable)
+        .values({
+          conversationId: conversation.id,
+          role: "assistant",
+          content: assistantReply,
+          createdAt: assistantCreatedAt,
+        })
+        .returning();
+
+      await tx
+        .update(conversationsTable)
+        .set({
+          updatedAt: assistantCreatedAt,
+          ...(currentConversation.title === "New chat"
+            ? { title: titleFromFirstMessage(content) }
+            : {}),
+        })
+        .where(eq(conversationsTable.id, conversation.id));
+
+      return { items: [userMessage, assistantMessage] };
+    });
+
+    if (!storedTurn) {
+      res.status(404).json({ error: "Conversation not found." });
+      return;
+    }
+
+    res
+      .status(201)
+      .json(SendConversationChatTurnResponse.parse(storedTurn));
   },
 );
 

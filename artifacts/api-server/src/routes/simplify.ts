@@ -7,6 +7,12 @@ import {
   type DocumentSimplificationProgress,
   type DocumentSimplificationResponseDiagnostics,
 } from "../lib/document-simplifier";
+import {
+  discoverGrokModel,
+  extractXaiErrorMessage,
+  extractXaiResponseText,
+  XAI_API_BASE,
+} from "../lib/xai";
 import { PLAIN_LANGUAGE_OUTPUT_GUIDANCE } from "../lib/plain-language-format";
 import {
   createDocumentSimplificationJob,
@@ -20,38 +26,10 @@ import {
 } from "../lib/document-simplification-jobs";
 
 const router: IRouter = Router();
-const XAI_API_BASE = "https://api.x.ai/v1";
-
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null;
-}
 
 function extractOutputText(payload: unknown): string | null {
-  if (!isRecord(payload) || !Array.isArray(payload.output)) {
-    return null;
-  }
-
-  const textParts: string[] = [];
-
-  for (const item of payload.output) {
-    if (!isRecord(item) || item.type !== "message" || !Array.isArray(item.content)) {
-      continue;
-    }
-
-    for (const content of item.content) {
-      if (
-        isRecord(content) &&
-        content.type === "output_text" &&
-        typeof content.text === "string"
-      ) {
-        textParts.push(content.text);
-      }
-    }
-  }
-
-  const result = textParts.join("\n").trim();
+  const result = extractXaiResponseText(payload);
+  if (!result) return null;
   const bottomLineHeading = /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?bottom[ \t]+line(?:\*\*)?:?(?:\*\*)?[ \t]*$/im.exec(
     result,
   );
@@ -59,107 +37,6 @@ function extractOutputText(payload: unknown): string | null {
     ? result.slice(0, bottomLineHeading.index).trim()
     : result;
   return withoutBottomLine.length > 0 ? withoutBottomLine : null;
-}
-
-function extractErrorMessage(payload: unknown): string | undefined {
-  if (!isRecord(payload)) {
-    return undefined;
-  }
-
-  const error = payload.error;
-  if (typeof error === "string") {
-    return error;
-  }
-  if (isRecord(error) && typeof error.message === "string") {
-    return error.message;
-  }
-  if (typeof payload.message === "string") {
-    return payload.message;
-  }
-  if (typeof payload.detail === "string") {
-    return payload.detail;
-  }
-
-  return undefined;
-}
-
-function modelVersion(id: string): number[] {
-  const match = id.match(/^grok-(\d+(?:\.\d+)?)/i);
-  return match
-    ? match[1].split(".").map((part) => Number.parseInt(part, 10))
-    : [];
-}
-
-type ModelDiscovery = {
-  model: string | null;
-  upstreamStatus?: number;
-  upstreamMessage?: string;
-  responseKeys?: string[];
-  advertisedModels?: string[];
-};
-
-async function discoverGrokModel(apiKey: string): Promise<ModelDiscovery> {
-  const response = await fetch(`${XAI_API_BASE}/models`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) {
-    const failurePayload: unknown = await response.json().catch(() => null);
-
-    return {
-      model: null,
-      upstreamStatus: response.status,
-      upstreamMessage: extractErrorMessage(failurePayload)?.slice(0, 300),
-    };
-  }
-
-  const payload: unknown = await response.json();
-  if (!isRecord(payload) || !Array.isArray(payload.data)) {
-    return {
-      model: null,
-      responseKeys: isRecord(payload) ? Object.keys(payload) : [],
-    };
-  }
-
-  const models = payload.data.filter(
-    (item): item is JsonRecord =>
-      isRecord(item) &&
-      typeof item.id === "string" &&
-      item.id.toLowerCase().startsWith("grok-") &&
-      !/(image|imagine|video|voice)/i.test(item.id),
-  );
-
-  const latestAliasModels = models.filter(
-    (model) =>
-      Array.isArray(model.aliases) &&
-      model.aliases.some(
-        (alias) => typeof alias === "string" && alias.endsWith("-latest"),
-      ),
-  );
-  const candidates = latestAliasModels.length > 0 ? latestAliasModels : models;
-  candidates.sort((left, right) => {
-    const leftVersion = modelVersion(String(left.id));
-    const rightVersion = modelVersion(String(right.id));
-
-    for (let index = 0; index < Math.max(leftVersion.length, rightVersion.length); index += 1) {
-      const difference = (rightVersion[index] ?? 0) - (leftVersion[index] ?? 0);
-      if (difference !== 0) {
-        return difference;
-      }
-    }
-
-    return 0;
-  });
-
-  const model =
-    typeof candidates[0]?.id === "string" ? candidates[0].id : null;
-
-  return {
-    model,
-    advertisedModels: models
-      .slice(0, 10)
-      .map((item) => (typeof item.id === "string" ? item.id : "unknown")),
-  };
 }
 
 function sendJobEvent(
@@ -488,7 +365,7 @@ router.post("/simplify", async (req, res): Promise<void> => {
 
     if (!upstream.ok) {
       const failurePayload: unknown = await upstream.json().catch(() => null);
-      const upstreamMessage = extractErrorMessage(failurePayload);
+      const upstreamMessage = extractXaiErrorMessage(failurePayload);
       req.log.warn(
         { upstreamStatus: upstream.status, upstreamMessage },
         "Grok API returned an unsuccessful response",
