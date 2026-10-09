@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   getListConversationMessagesQueryKey,
   getListConversationsQueryKey,
@@ -6,13 +6,18 @@ import {
   useImportGuestConversation,
   useListConversationMessages,
   useListConversations,
+  useRenameConversation,
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckCheck, Clipboard, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Pencil, Plus, RotateCw, Search, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import { Link } from "wouter";
 import { AccountActions } from "./account-actions";
 import { requestChatStream } from "./lib/chat-stream";
+
+const RichMarkdown = lazy(() =>
+  import("./markdown-renderer").then((module) => ({ default: module.SafeMarkdown })),
+);
 
 type Mode = "guest" | "account";
 type LocalConversation = {
@@ -167,6 +172,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const queryClient = useQueryClient();
   const conversationsQuery = useListConversations({ query: { enabled: !isGuest, queryKey: getListConversationsQueryKey() } });
   const deleteConversation = useDeleteConversation();
+  const renameConversation = useRenameConversation();
   const guestImportMutation = useImportGuestConversation();
   const [guestConversations, setGuestConversations] = useState<LocalConversation[]>(() => {
     const stored = readLocalConversations();
@@ -179,16 +185,27 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachmentError, setAttachmentError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [renamingId, setRenamingId] = useState("");
+  const [renameDraft, setRenameDraft] = useState("");
+  const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, "up" | "down">>({});
+  const [copiedMessageKey, setCopiedMessageKey] = useState("");
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   const [guestSendingIds, setGuestSendingIds] = useState<string[]>([]);
   const [guestStreamReplies, setGuestStreamReplies] = useState<Record<string, string>>({});
+  const [guestPartialReplies, setGuestPartialReplies] = useState<Record<string, string>>({});
   const [accountPendingTurn, setAccountPendingTurn] = useState<{
     conversationId: string;
     content: string;
     reply: string;
+    status: "sending" | "failed";
+    createIfMissing: boolean;
   } | null>(null);
   const [guestErrors, setGuestErrors] = useState<Record<string, string>>({});
   const [accountError, setAccountError] = useState("");
@@ -196,7 +213,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [guestImportError, setGuestImportError] = useState("");
   const [isImportingGuest, setIsImportingGuest] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
@@ -206,8 +227,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const accountSelectedIdRef = useRef(accountSelectedId);
   const guestControllersRef = useRef(new Map<string, AbortController>());
   const guestPendingAttachmentsRef = useRef(new Map<string, File[]>());
+  const accountPendingAttachmentsRef = useRef(new Map<string, File[]>());
   const accountControllerRef = useRef<AbortController | null>(null);
   const guestImportAttemptedRef = useRef(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const lastAnnouncedSentenceRef = useRef("");
 
   const accountConversations = conversationsQuery.data?.items ?? [];
   const sortedGuestConversations = useMemo(
@@ -235,7 +259,9 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const messages: (GuestChatMessage | Message)[] = isGuest
     ? (activeGuest?.messages ?? [])
     : isAccountDraft ? [] : accountMessages;
-  const isSending = isGuest ? guestSendingIds.includes(guestSelectedId) : accountPendingTurn !== null;
+  const isSending = isGuest
+    ? guestSendingIds.includes(guestSelectedId)
+    : accountPendingTurn?.status === "sending";
   const currentError = isGuest ? guestErrors[guestSelectedId] : accountError;
   const isEmpty = messages.length === 0 && !(accountPendingTurn?.conversationId === activeAccountId);
   const sidebarExpanded = isMobileViewport ? mobileSidebarOpen : !desktopSidebarCollapsed;
@@ -332,10 +358,45 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   }, [isGuest, accountSelectedId, accountConversations]);
 
   useEffect(() => {
-    if (messages.length || accountPendingTurn?.conversationId === activeAccountId) {
+    if (shouldAutoScrollRef.current && (messages.length || accountPendingTurn?.conversationId === activeAccountId)) {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [messages.length, selectedId, isSending, streamingText, accountPendingTurn, activeAccountId]);
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = true;
+    setShowJumpToLatest(false);
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
+  }, [selectedId]);
+
+  useEffect(() => {
+    const previews: Record<string, string> = {};
+    selectedFiles.forEach((file, index) => {
+      if (/\.(jpe?g|png)$/i.test(file.name)) {
+        previews[`${file.name}-${file.lastModified}-${index}`] = URL.createObjectURL(file);
+      }
+    });
+    setImagePreviews(previews);
+    return () => Object.values(previews).forEach((url) => URL.revokeObjectURL(url));
+  }, [selectedFiles]);
+
+  useEffect(() => {
+    if (renamingId) requestAnimationFrame(() => renameInputRef.current?.focus());
+  }, [renamingId]);
+
+  useEffect(() => {
+    if (!isSending) return;
+    if (!streamingText) {
+      setLiveAnnouncement("Assistant is responding.");
+      return;
+    }
+    const sentences = streamingText.match(/[^.!?\n]+[.!?]+/g);
+    const latestSentence = sentences?.at(-1)?.trim();
+    if (latestSentence && latestSentence !== lastAnnouncedSentenceRef.current) {
+      lastAnnouncedSentenceRef.current = latestSentence;
+      setLiveAnnouncement(latestSentence);
+    }
+  }, [isSending, streamingText]);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -363,7 +424,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, [attachmentMenuOpen]);
 
-  function addSelectedFiles(fileList: FileList | null, acceptedExtensions: string[]) {
+  function addSelectedFiles(fileList: FileList | File[] | null, acceptedExtensions: string[]) {
     if (!fileList?.length) return;
     const newFiles = Array.from(fileList).filter((file) =>
       !selectedFiles.some((selected) =>
@@ -403,6 +464,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       autoDraftRef.current = prompt;
       setDraft(prompt);
     }
+  }
+
+  function handleComposerScroll() {
+    const element = scrollAreaRef.current;
+    if (!element) return;
+    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+    shouldAutoScrollRef.current = atBottom;
+    setShowJumpToLatest(!atBottom);
   }
 
   function removeSelectedFile(index: number) {
@@ -502,33 +571,47 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   ) {
     setGuestErrors((errors) => ({ ...errors, [chatId]: "" }));
     setGuestSendingIds((ids) => ids.includes(chatId) ? ids : [...ids, chatId]);
+    setGuestPartialReplies((replies) => {
+      const next = { ...replies };
+      delete next[chatId];
+      return next;
+    });
     const controller = new AbortController();
     guestControllersRef.current.set(chatId, controller);
     setGuestStreamReplies((replies) => ({ ...replies, [chatId]: "" }));
+    let streamed = "";
+    if (attachments.length && chatId === guestSelectedIdRef.current) setUploadProgress(0);
     try {
       const response = await requestChatStream(
         "/api/guest-chat",
         guestChatRequestBody(requestHistory(history), attachments),
-        (delta) => setGuestStreamReplies((replies) => ({
-          ...replies,
-          [chatId]: (replies[chatId] ?? "") + delta,
-        })),
+        (delta) => {
+          streamed += delta;
+          setGuestStreamReplies((replies) => ({
+            ...replies,
+            [chatId]: (replies[chatId] ?? "") + delta,
+          }));
+        },
         controller.signal,
+        (percentage) => {
+          if (chatId === guestSelectedIdRef.current) setUploadProgress(percentage);
+        },
       );
       const content = response.content.trim();
       if (!content) throw new Error("No response came back. Please try again.");
       setGuestConversations((items) => items.map((chat) => chat.id === chatId
         ? { ...chat, messages: [...chat.messages, { role: "assistant", content }], updatedAt: Date.now() }
         : chat));
+      setLiveAnnouncement("Assistant response complete.");
       guestPendingAttachmentsRef.current.delete(chatId);
       if (chatId === guestSelectedIdRef.current) {
         setSelectedFiles([]);
         autoDraftRef.current = null;
       }
     } catch (cause) {
-      const latestUserText = history[history.length - 1]?.role === "user" ? history[history.length - 1].content : "";
+      if (streamed) setGuestPartialReplies((replies) => ({ ...replies, [chatId]: streamed }));
       setGuestErrors((errors) => ({ ...errors, [chatId]: cause instanceof Error && cause.message ? cause.message : "That message did not send. Please try again." }));
-      if (chatId === guestSelectedIdRef.current) setDraft((current) => current || latestUserText);
+      setLiveAnnouncement(streamed ? "The reply stopped. Partial text is available above." : "The reply did not complete. You can retry it.");
     } finally {
       if (guestControllersRef.current.get(chatId) === controller) {
         guestControllersRef.current.delete(chatId);
@@ -539,6 +622,76 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         return next;
       });
       setGuestSendingIds((ids) => ids.filter((id) => id !== chatId));
+      if (chatId === guestSelectedIdRef.current) setUploadProgress(null);
+    }
+  }
+
+  async function runAccountTurn(
+    conversationId: string,
+    content: string,
+    createIfMissing: boolean,
+    attachments: File[],
+  ) {
+    setAccountError("");
+    const controller = new AbortController();
+    accountControllerRef.current = controller;
+    setAccountPendingTurn({
+      conversationId,
+      content,
+      reply: "",
+      status: "sending",
+      createIfMissing,
+    });
+    let streamed = "";
+    if (attachments.length) setUploadProgress(0);
+    try {
+      const response = await requestChatStream(
+        `/api/conversations/${conversationId}/chat`,
+        accountChatRequestBody(content, createIfMissing, attachments),
+        (delta) => {
+          streamed += delta;
+          setAccountPendingTurn((turn) =>
+            turn?.conversationId === conversationId
+              ? { ...turn, reply: turn.reply + delta }
+              : turn);
+        },
+        controller.signal,
+        setUploadProgress,
+      );
+      if (!Array.isArray(response.items) || response.items.length < 2) {
+        throw new Error("The completed reply could not be loaded. Please try again.");
+      }
+      queryClient.setQueryData(getListConversationMessagesQueryKey(conversationId), {
+        items: response.items as Message[],
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: getListConversationMessagesQueryKey(conversationId) }),
+        queryClient.invalidateQueries({ queryKey: getListConversationsQueryKey() }),
+      ]);
+      if (accountSelectedIdRef.current === conversationId) {
+        if (createIfMissing) setAccountDraft(null);
+        setDraft("");
+        setSelectedFiles([]);
+        setAttachmentError("");
+        autoDraftRef.current = null;
+      }
+      setAccountPendingTurn((turn) => turn?.conversationId === conversationId ? null : turn);
+      accountPendingAttachmentsRef.current.delete(conversationId);
+      setLiveAnnouncement("Assistant response complete.");
+    } catch (cause) {
+      setAccountError(cause instanceof Error && cause.message
+        ? cause.message
+        : "Your message could not be sent. Your draft is still here.");
+      setAccountPendingTurn((turn) => turn?.conversationId === conversationId
+        ? { ...turn, reply: streamed, status: "failed" }
+        : turn);
+      setLiveAnnouncement(streamed ? "The reply stopped. Partial text is available above." : "The reply did not complete. You can retry it.");
+      void queryClient.invalidateQueries({
+        queryKey: getListConversationMessagesQueryKey(conversationId),
+      });
+    } finally {
+      if (accountControllerRef.current === controller) accountControllerRef.current = null;
+      setUploadProgress(null);
     }
   }
 
@@ -589,47 +742,9 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       return;
     }
     setAccountError("");
-    const controller = new AbortController();
-    accountControllerRef.current = controller;
-    setAccountPendingTurn({ conversationId: activeAccount.id, content, reply: "" });
-    try {
-      const response = await requestChatStream(
-        `/api/conversations/${activeAccount.id}/chat`,
-        accountChatRequestBody(content, isAccountDraft, selectedFiles),
-        (delta) => setAccountPendingTurn((turn) =>
-          turn?.conversationId === activeAccount.id
-            ? { ...turn, reply: turn.reply + delta }
-            : turn),
-        controller.signal,
-      );
-      if (!Array.isArray(response.items) || response.items.length < 2) {
-        throw new Error("The completed reply could not be loaded. Please try again.");
-      }
-      queryClient.setQueryData(getListConversationMessagesQueryKey(activeAccount.id), {
-        items: response.items as Message[],
-      });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: getListConversationMessagesQueryKey(activeAccount.id) }),
-        queryClient.invalidateQueries({ queryKey: getListConversationsQueryKey() }),
-      ]);
-      if (accountSelectedIdRef.current === activeAccount.id) {
-        if (isAccountDraft) setAccountDraft(null);
-        setDraft("");
-        setSelectedFiles([]);
-        setAttachmentError("");
-        autoDraftRef.current = null;
-      }
-    } catch (cause) {
-      setAccountError(cause instanceof Error && cause.message ? cause.message : "Your message could not be sent. Your draft is still here.");
-      void queryClient.invalidateQueries({
-        queryKey: getListConversationMessagesQueryKey(activeAccount.id),
-      });
-    } finally {
-      if (accountControllerRef.current === controller) {
-        accountControllerRef.current = null;
-      }
-      setAccountPendingTurn(null);
-    }
+    if (selectedFiles.length) accountPendingAttachmentsRef.current.set(activeAccount.id, selectedFiles);
+    else accountPendingAttachmentsRef.current.delete(activeAccount.id);
+    void runAccountTurn(activeAccount.id, content, isAccountDraft, selectedFiles);
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -637,6 +752,100 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
     }
+  }
+
+  function stopGeneration() {
+    if (isGuest) guestControllersRef.current.get(guestSelectedId)?.abort();
+    else accountControllerRef.current?.abort();
+    setLiveAnnouncement("Response interrupted. The partial reply is available.");
+  }
+
+  async function copyMessage(content: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageKey(key);
+      window.setTimeout(() => setCopiedMessageKey((current) => current === key ? "" : current), 1600);
+    } catch {
+      setWorkspaceError("This message could not be copied.");
+    }
+  }
+
+  function useMessageAsDraft(content: string) {
+    setDraft(content.slice(0, MAX_MESSAGE_CHARS));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function regenerateReply(messageIndex: number) {
+    const precedingUser = [...messages.slice(0, messageIndex)]
+      .reverse()
+      .find((message) => message.role === "user");
+    if (!precedingUser) return;
+    if (isGuest && activeGuest) {
+      const nextMessages: GuestChatMessage[] = [
+        ...activeGuest.messages,
+        { role: "user", content: precedingUser.content },
+      ];
+      setGuestConversations((items) => items.map((chat) =>
+        chat.id === activeGuest.id
+          ? { ...chat, messages: nextMessages, updatedAt: Date.now() }
+          : chat));
+      void sendGuest(activeGuest.id, nextMessages);
+    } else if (activeAccount) {
+      void runAccountTurn(activeAccount.id, precedingUser.content, false, []);
+    }
+  }
+
+  async function saveConversationRename(chat: LocalConversation | Conversation) {
+    const title = renameDraft.trim();
+    if (!title || title.length > 120) {
+      setWorkspaceError("Chat names must be between 1 and 120 characters.");
+      return;
+    }
+    setWorkspaceError("");
+    try {
+      if (isGuest) {
+        setGuestConversations((items) => items.map((item) =>
+          item.id === chat.id ? { ...item, title, updatedAt: Date.now() } : item));
+      } else {
+        const updated = await renameConversation.mutateAsync({
+          conversationId: chat.id,
+          data: { title },
+        });
+        queryClient.setQueryData(
+          getListConversationsQueryKey(),
+          (current: { items: Conversation[] } | undefined) => ({
+            items: (current?.items ?? []).map((item) => item.id === updated.id ? updated : item),
+          }),
+        );
+      }
+      setRenamingId("");
+      setRenameDraft("");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "This chat could not be renamed.");
+    }
+  }
+
+  function startConversationRename(chat: LocalConversation | Conversation) {
+    setRenamingId(chat.id);
+    setRenameDraft(chat.title || "New chat");
+    setWorkspaceError("");
+  }
+
+  function handleComposerDrop(event: DragEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsDraggingFiles(false);
+    if (event.dataTransfer.files.length) {
+      addSelectedFiles(event.dataTransfer.files, [
+        ".pdf", ".txt", ".md", ".csv", ".jpg", ".jpeg", ".png",
+      ]);
+    }
+  }
+
+  function handleComposerPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files);
+    if (!files.length) return;
+    event.preventDefault();
+    addSelectedFiles(files, [".jpg", ".jpeg", ".png"]);
   }
 
   function selectChat(id: string) {
@@ -649,7 +858,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       accountSelectedIdRef.current = id;
       setAccountSelectedId(id);
       setAccountError("");
-      setSelectedFiles([]);
+      setSelectedFiles(accountPendingAttachmentsRef.current.get(id) ?? []);
     }
     setDraft("");
     autoDraftRef.current = null;
@@ -664,6 +873,16 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const activeTitle = isGuest ? activeGuest?.title : activeAccount?.title;
   const guestUserMessageCount = activeGuest?.messages.filter((message) => message.role === "user").length ?? 0;
   const historyItems = isGuest ? guestSorted : accountSorted;
+  const visibleHistoryItems = useMemo(() => {
+    const query = conversationSearch.trim().toLocaleLowerCase();
+    if (!query) return historyItems;
+    return historyItems.filter((chat) => {
+      const titleMatches = chat.title.toLocaleLowerCase().includes(query);
+      if (!isGuest || titleMatches) return titleMatches;
+      return (chat as LocalConversation).messages.some((message) =>
+        message.content.toLocaleLowerCase().includes(query));
+    });
+  }, [conversationSearch, historyItems, isGuest]);
 
   return (
     <main className={`chat-app ${mobileSidebarOpen ? "sidebar-open" : ""} ${desktopSidebarCollapsed && !isMobileViewport ? "sidebar-collapsed" : ""}`}>
@@ -685,7 +904,19 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           <Plus size={16} />
           <span>New chat</span>
         </button>
-        <div className="chat-history-label"><span>RECENT</span><span>{historyItems.length}</span></div>
+        <div className="chat-history-label"><span>RECENT</span><span>{visibleHistoryItems.length}</span></div>
+        <label className="conversation-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            type="search"
+            value={conversationSearch}
+            onChange={(event) => setConversationSearch(event.target.value)}
+            placeholder="Search chats"
+            aria-label="Search conversations"
+            data-testid="input-search-conversations"
+          />
+          {conversationSearch && <button type="button" aria-label="Clear search" onClick={() => setConversationSearch("")}><X size={13} /></button>}
+        </label>
         <div className="chat-history-list" data-testid="list-conversations">
           {accountLoading ? (
             <div className="history-skeleton" role="status" aria-label="Loading conversations"><i /><i /><i /></div>
@@ -694,20 +925,46 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               <span>Chats couldn’t load.</span>
               <button type="button" onClick={() => void conversationsQuery.refetch()}>Try again</button>
             </div>
-          ) : historyItems.length ? (
+          ) : visibleHistoryItems.length ? (
             <>
-              {historyItems.slice(0, visibleHistoryCount).map((chat) => (
+              {visibleHistoryItems.slice(0, visibleHistoryCount).map((chat) => (
                 <div className={`history-row ${chat.id === selectedId ? "is-current" : ""}`} key={chat.id}>
-                  <button type="button" className="history-select" onClick={() => selectChat(chat.id)} data-testid={`button-select-chat-${chat.id}`}>
-                    <MessageSquare size={15} strokeWidth={1.7} />
-                    <span className="history-chat-name">{chat.title || "New chat"}</span>
-                  </button>
+                  {renamingId === chat.id ? (
+                    <input
+                      ref={renameInputRef}
+                      className="history-rename-input"
+                      value={renameDraft}
+                      maxLength={120}
+                      aria-label={`Rename ${chat.title || "chat"}`}
+                      data-testid={`input-rename-chat-${chat.id}`}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void saveConversationRename(chat);
+                        } else if (event.key === "Escape") {
+                          setRenamingId("");
+                          setRenameDraft("");
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button type="button" className="history-select" onClick={() => selectChat(chat.id)} data-testid={`button-select-chat-${chat.id}`}>
+                      <MessageSquare size={15} strokeWidth={1.7} />
+                      <span className="history-chat-name">{chat.title || "New chat"}</span>
+                    </button>
+                  )}
+                  {renamingId === chat.id ? (
+                    <button type="button" className="history-row-action" aria-label={`Save name for ${chat.title || "chat"}`} onClick={() => void saveConversationRename(chat)}><Check size={14} /></button>
+                  ) : (
+                    <button type="button" className="history-row-action" aria-label={`Rename ${chat.title || "chat"}`} onClick={() => startConversationRename(chat)} data-testid={`button-rename-chat-${chat.id}`}><Pencil size={13} /></button>
+                  )}
                   <button type="button" className="history-delete" aria-label={`Delete ${chat.title || "chat"}`} onClick={() => void removeChat(chat)} disabled={deletingId === chat.id} data-testid={`button-delete-chat-${chat.id}`}>
                     {deletingId === chat.id ? <span className="mini-loader" /> : <Trash2 size={14} />}
                   </button>
                 </div>
               ))}
-              {historyItems.length > visibleHistoryCount && (
+              {visibleHistoryItems.length > visibleHistoryCount && (
                 <button
                   type="button"
                   className="history-see-more"
@@ -718,6 +975,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                 </button>
               )}
             </>
+          ) : conversationSearch.trim() ? (
+            <div className="history-blank"><Search size={16} /><p>No matching chats</p><span>Try another title or phrase.</span></div>
           ) : (
             <div className="history-blank">
               <Clock3 size={16} />
@@ -757,7 +1016,12 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           <button type="button" className="top-new-button" onClick={makeNewChat} aria-label="Start a new chat" data-testid="button-new-chat-top"><Plus size={17} /></button>
         </header>
 
-        <div className={`chat-scroll-area ${isEmpty ? "is-empty" : ""}`} data-testid="content-chat-messages">
+        <div
+          ref={scrollAreaRef}
+          className={`chat-scroll-area ${isEmpty ? "is-empty" : ""}`}
+          data-testid="content-chat-messages"
+          onScroll={handleComposerScroll}
+        >
           {!isGuest && !activeAccount && !accountLoading ? (
             <div className="chat-welcome" data-testid="content-chat-welcome">
               <div className="welcome-mark"><Sparkles size={19} strokeWidth={1.65} /></div>
@@ -786,14 +1050,41 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           ) : (
             <div className="message-thread">
               {messages.map((message, index) => (
-                <MessageView key={"id" in message ? message.id : `${selectedId}-${index}`} message={message} index={index} />
+                <MessageView
+                  key={"id" in message ? message.id : `${selectedId}-${index}`}
+                  message={message}
+                  index={index}
+                  actionKey={"id" in message ? message.id : `${selectedId}-${index}`}
+                  feedback={feedbackByMessage["id" in message ? message.id : `${selectedId}-${index}`]}
+                  copied={copiedMessageKey === ("id" in message ? message.id : `${selectedId}-${index}`)}
+                  onCopy={copyMessage}
+                  onUseAsDraft={useMessageAsDraft}
+                  onRegenerate={regenerateReply}
+                  onFeedback={(key, value) => setFeedbackByMessage((current) => {
+                    const next = { ...current };
+                    if (value) next[key] = value;
+                    else delete next[key];
+                    return next;
+                  })}
+                />
               ))}
               {isGuest && guestSendingIds.includes(guestSelectedId) && guestStreamReplies[guestSelectedId] && (
                 <MessageView
                   key={`${guestSelectedId}-streaming`}
                   message={{ role: "assistant", content: guestStreamReplies[guestSelectedId] }}
                   index={messages.length}
+                  actions={false}
                 />
+              )}
+              {isGuest && !isSending && guestPartialReplies[guestSelectedId] && (
+                <div className="partial-response">
+                  <MessageView
+                    message={{ role: "assistant", content: guestPartialReplies[guestSelectedId] }}
+                    index={messages.length}
+                    actions={false}
+                  />
+                  <span>Incomplete response — your message is still saved.</span>
+                </div>
               )}
               {!isGuest && accountPendingTurn?.conversationId === activeAccountId && (
                 <>
@@ -807,9 +1098,15 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                       key={`${activeAccountId}-streaming`}
                       message={{ role: "assistant", content: accountPendingTurn.reply }}
                       index={messages.length + 1}
+                      actions={false}
                     />
-                  ) : (
+                  ) : accountPendingTurn.status === "sending" ? (
                     <div className="assistant-loading" role="status"><span className="assistant-mark"><Sparkles size={14} /></span><div className="thinking-indicator"><i /><i /><i /><span>Thinking</span></div></div>
+                  ) : <div className="partial-response-empty">No reply text was received. You can try again.</div>}
+                  {accountPendingTurn.status === "failed" && accountPendingTurn.reply && (
+                    <div className="partial-response">
+                      <span>Incomplete response — your message is still saved.</span>
+                    </div>
                   )}
                 </>
               )}
@@ -831,7 +1128,22 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               <div ref={endRef} />
             </div>
           )}
+          {showJumpToLatest && (
+            <button
+              type="button"
+              className="jump-to-latest"
+              onClick={() => {
+                shouldAutoScrollRef.current = true;
+                setShowJumpToLatest(false);
+                endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+              }}
+              data-testid="button-jump-to-latest"
+            >
+              <ArrowDown size={14} /> Latest
+            </button>
+          )}
         </div>
+        <div className="sr-only" aria-live="polite" aria-atomic="true">{liveAnnouncement}</div>
 
         <div className="composer-dock">
           {guestImportError && <div className="chat-error" role="alert" data-testid="status-import-error">
@@ -844,19 +1156,59 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           {currentError && <div className="chat-error" role="alert" data-testid="status-chat-error">
             <span>{currentError}</span>
             {isGuest && activeGuest?.messages.at(-1)?.role === "user" && <button type="button" onClick={() => void sendGuest(activeGuest.id, activeGuest.messages, guestPendingAttachmentsRef.current.get(activeGuest.id) ?? [])} disabled={isSending} data-testid="button-retry-message">Try again</button>}
+            {!isGuest && accountPendingTurn?.status === "failed" && accountPendingTurn.conversationId === activeAccountId && (
+              <button
+                type="button"
+                onClick={() => void runAccountTurn(
+                  accountPendingTurn.conversationId,
+                  accountPendingTurn.content,
+                  accountPendingTurn.createIfMissing,
+                  accountPendingAttachmentsRef.current.get(accountPendingTurn.conversationId) ?? selectedFiles,
+                )}
+                data-testid="button-retry-message"
+              >Try again</button>
+            )}
             <button type="button" aria-label="Dismiss error" onClick={() => isGuest ? setGuestErrors((errors) => ({ ...errors, [guestSelectedId]: "" })) : setAccountError("")}><X size={14} /></button>
           </div>}
           {attachmentError && <div className="chat-error" role="alert" data-testid="status-attachment-error">
             <span>{attachmentError}</span>
             <button type="button" aria-label="Dismiss attachment error" onClick={() => setAttachmentError("")}><X size={14} /></button>
           </div>}
-          <form className="message-composer" onSubmit={(event) => void submit(event)} data-testid="form-chat-composer">
+          {uploadProgress !== null && (
+            <div className="attachment-upload-progress" role="status" aria-live="polite" data-testid="status-upload-progress">
+              <span>Uploading attachments</span>
+              <progress max={100} value={uploadProgress} aria-label={`Attachment upload ${uploadProgress}%`} />
+              <span>{uploadProgress}%</span>
+            </div>
+          )}
+          <form
+            className={`message-composer ${isDraggingFiles ? "is-drop-target" : ""}`}
+            onSubmit={(event) => void submit(event)}
+            onDragEnter={(event) => {
+              if (event.dataTransfer.types.includes("Files")) setIsDraggingFiles(true);
+            }}
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes("Files")) {
+                event.preventDefault();
+                setIsDraggingFiles(true);
+              }
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDraggingFiles(false);
+            }}
+            onDrop={handleComposerDrop}
+            data-testid="form-chat-composer"
+          >
+            {isDraggingFiles && <div className="drop-files-hint" aria-hidden="true">Drop files to attach</div>}
             {selectedFiles.length > 0 && <div className="composer-attachments" role="list" aria-label="Attached files" data-testid="list-attached-files">
               {selectedFiles.map((file, index) => {
                 const isImage = /\.(jpe?g|png)$/i.test(file.name);
+                const previewUrl = imagePreviews[`${file.name}-${file.lastModified}-${index}`];
                 return (
                   <div className="attachment-chip" role="listitem" key={`${file.name}-${file.lastModified}-${index}`} data-testid={`chip-attachment-${index}`}>
-                    <span className="attachment-chip-icon">{isImage ? <ImageIcon size={15} /> : <FileText size={15} />}</span>
+                    {previewUrl
+                      ? <img className="attachment-preview" src={previewUrl} alt={`Preview of ${file.name}`} />
+                      : <span className="attachment-chip-icon">{isImage ? <ImageIcon size={15} /> : <FileText size={15} />}</span>}
                     <span className="attachment-chip-copy">
                       <span className="attachment-chip-name" title={file.name}>{file.name}</span>
                       <span className="attachment-chip-size">{formatFileSize(file.size)}</span>
@@ -885,6 +1237,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                 else setAccountError("");
               }}
               onKeyDown={onComposerKeyDown}
+              onPaste={handleComposerPaste}
               rows={1}
               maxLength={MAX_MESSAGE_CHARS}
               placeholder="Message Easy Peasy..."
@@ -977,9 +1330,15 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                 </div>
                 <span>{draft.length > MAX_MESSAGE_CHARS - 500 ? `${draft.length.toLocaleString()} / ${MAX_MESSAGE_CHARS.toLocaleString()}` : "Enter to send · Shift + Enter for a new line"}</span>
               </div>
-              <button type="submit" disabled={(!draft.trim() && selectedFiles.length === 0) || isSending || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
-                {isSending ? <span className="send-loader" /> : <ArrowUp size={18} strokeWidth={2.2} />}
-              </button>
+              {isSending ? (
+                <button type="button" className="stop-generation-button" onClick={stopGeneration} aria-label="Stop generating" data-testid="button-stop-generation">
+                  <Square size={14} fill="currentColor" />
+                </button>
+              ) : (
+                <button type="submit" disabled={(!draft.trim() && selectedFiles.length === 0) || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
+                  <ArrowUp size={18} strokeWidth={2.2} />
+                </button>
+              )}
             </div>
           </form>
         </div>
@@ -988,14 +1347,68 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   );
 }
 
-function MessageView({ message, index }: { message: GuestChatMessage | Message; index: number }) {
+function MessageView({
+  message,
+  index,
+  actionKey = "",
+  feedback,
+  copied = false,
+  actions = true,
+  onCopy,
+  onUseAsDraft,
+  onRegenerate,
+  onFeedback,
+}: {
+  message: GuestChatMessage | Message;
+  index: number;
+  actionKey?: string;
+  feedback?: "up" | "down";
+  copied?: boolean;
+  actions?: boolean;
+  onCopy?: (content: string, key: string) => void;
+  onUseAsDraft?: (content: string) => void;
+  onRegenerate?: (index: number) => void;
+  onFeedback?: (key: string, value: "up" | "down" | null) => void;
+}) {
   const isUser = message.role === "user";
   return (
     <article className={`thread-message ${isUser ? "thread-user" : "thread-assistant"}`} data-testid={`content-message-${message.role}-${index}`}>
       {!isUser && <span className="assistant-mark"><Sparkles size={14} strokeWidth={1.8} /></span>}
       <div className="thread-content">
         <div className="thread-role">{isUser ? "You" : "Easy Peasy"}</div>
-        <div className="thread-text">{isUser ? <p>{message.content}</p> : <SafeMarkdown content={message.content} />}</div>
+        <div className="thread-text">
+          {isUser
+            ? <p>{message.content}</p>
+            : <Suspense fallback={<div className="safe-markdown">{message.content}</div>}><RichMarkdown content={message.content} /></Suspense>}
+        </div>
+        {actions && actionKey && (
+          <div className="message-actions" aria-label={`${isUser ? "Your" : "Assistant"} message actions`}>
+            <button type="button" aria-label={copied ? "Message copied" : "Copy message"} onClick={() => onCopy?.(message.content, actionKey)}>
+              {copied ? <CheckCheck size={14} /> : <Clipboard size={14} />}
+            </button>
+            {isUser ? (
+              <button type="button" aria-label="Use message as a new draft" onClick={() => onUseAsDraft?.(message.content)}><Pencil size={14} /></button>
+            ) : (
+              <>
+                <button type="button" aria-label="Regenerate reply" onClick={() => onRegenerate?.(index)}><RotateCw size={14} /></button>
+                <button
+                  type="button"
+                  aria-label="Helpful response"
+                  aria-pressed={feedback === "up"}
+                  className={feedback === "up" ? "is-selected" : ""}
+                  onClick={() => onFeedback?.(actionKey, feedback === "up" ? null : "up")}
+                ><ThumbsUp size={14} /></button>
+                <button
+                  type="button"
+                  aria-label="Unhelpful response"
+                  aria-pressed={feedback === "down"}
+                  className={feedback === "down" ? "is-selected" : ""}
+                  onClick={() => onFeedback?.(actionKey, feedback === "down" ? null : "down")}
+                ><ThumbsDown size={14} /></button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </article>
   );
@@ -1088,7 +1501,7 @@ function parseMarkdownTable(lines: string[], startIndex: number) {
   return { headers, alignments, rows, nextIndex };
 }
 
-function SafeMarkdown({ content }: { content: string }) {
+function LegacySafeMarkdown({ content }: { content: string }) {
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let paragraph: string[] = [];

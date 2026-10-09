@@ -5,6 +5,12 @@ description: Product constraints for the general chat and guest conversation his
 
 The public root chat is open-ended and sends only visible user and assistant turns to the model; do not add Easy Peasy system or developer instructions to general chat. Guest conversations stay in browser-local storage. If a guest chooses sign-in or account creation from the third-message prompt, copy only the active conversation into the account and retain its local copy; do not bulk-import other guest chats. Keep PDF review and simplification separate, retaining their task-specific instructions.
 
+Chat message actions must not silently overwrite saved turns. Editing a message should seed a new draft, and regenerating a reply should append a new exchange while preserving the original messages.
+
 **Why:** The user chose anonymous chat, explicitly rejected a hidden prompt, and asked for the conversation to work like Grok. They later approved an explicit active-chat transfer while preserving the local copy, without enabling bulk history migration.
 
 **How to apply:** Keep the root chat usable without sign-in and without app-authored hidden instructions. Preserve account-owned conversations independently; only copy the active guest thread when the guest chooses account creation or sign-in through the prompt.
+
+**Why:** The user requires saved conversation turns to remain intact; message actions should not make irreversible history changes implicitly.
+
+**How to apply:** Keep edits and regenerations additive for both guest and account chats unless the user explicitly asks for destructive editing.

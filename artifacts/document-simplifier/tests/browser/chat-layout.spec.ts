@@ -408,3 +408,166 @@ test("signed-in draft chat forwards image attachments with its first multipart t
   expect(requestBody?.createIfMissing).toBe("true");
   expect(requestBody?.files).toEqual([{ name: "diagram.png", type: "image/png", size: 10 }]);
 });
+
+test("assistant Markdown renders code, safe links, quotes, nested lists, strike text, and math", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&rich=1");
+  const message = page.getByTestId("content-message-assistant-1");
+
+  const codeBlock = message.locator(".safe-markdown-code-block");
+  await expect(codeBlock.locator(".code-block-toolbar")).toContainText("typescript");
+  await expect(codeBlock.locator("code")).toContainText("const answer");
+  await expect(message.getByRole("link", { name: "useful link" })).toHaveAttribute("target", "_blank");
+  await expect(message.locator("del")).toHaveText("old text");
+  await expect(message.locator("blockquote")).toContainText("A quoted idea.");
+  await expect(message.locator(".safe-markdown-list ul ul li")).toHaveText("nested child");
+  await expect(message.locator(".katex")).toBeVisible();
+
+  await codeBlock.getByRole("button", { name: "Copy code" }).click();
+  await expect(codeBlock.getByRole("button", { name: "Code copied" })).toBeVisible();
+});
+
+test("message actions copy, draft, rate, and regenerate without removing earlier turns", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest");
+  await page.getByTestId("content-message-user-0").getByRole("button", { name: "Use message as a new draft" }).click();
+  await expect(page.getByTestId("input-chat-message")).toHaveValue("Why do planets orbit the Sun?");
+
+  await page.getByTestId("content-message-assistant-1").getByRole("button", { name: "Helpful response", exact: true }).click();
+  await expect(page.getByTestId("content-message-assistant-1").getByRole("button", { name: "Helpful response", exact: true }))
+    .toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("content-message-assistant-1").getByRole("button", { name: "Copy message" }).click();
+  await expect(page.getByTestId("content-message-assistant-1").getByRole("button", { name: "Message copied" })).toBeVisible();
+
+  await page.getByTestId("content-message-assistant-1").getByRole("button", { name: "Regenerate reply" }).click();
+  await expect(page.getByTestId("content-message-user-2")).toContainText("Why do planets orbit the Sun?");
+  await expect(page.getByTestId("content-message-assistant-3")).toContainText("A helpful reply");
+  const history = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("easy-peasy-docs:guest-conversations:v1") ?? "[]",
+  ) as { messages: unknown[] }[]);
+  expect(history[0].messages).toHaveLength(4);
+});
+
+test("conversation search and rename update guest history locally", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest");
+  const renameInput = page.getByTestId("button-rename-chat-66666666-6666-4666-8666-666666666666");
+  await renameInput.click();
+  const textbox = page.getByTestId("input-rename-chat-66666666-6666-4666-8666-666666666666");
+  await textbox.fill("Planet questions");
+  await textbox.press("Enter");
+  await expect(page.locator(".history-chat-name")).toHaveText("Planet questions");
+
+  await page.getByTestId("input-search-conversations").fill("orbit the Sun");
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await page.getByTestId("input-search-conversations").fill("not in this chat");
+  await expect(page.getByText("No matching chats")).toBeVisible();
+});
+
+test("stopping a streamed reply keeps its partial text and offers retry", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&empty=1&slow=1");
+  await page.getByTestId("input-chat-message").fill("Keep the partial reply");
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("button-stop-generation")).toBeVisible();
+  await page.getByTestId("button-stop-generation").click();
+
+  await expect(page.getByTestId("status-chat-error")).toContainText("interrupted");
+  await expect(page.getByTestId("content-message-assistant-1")).toContainText("This text arrived before stop.");
+  await expect(page.getByTestId("button-retry-message")).toBeVisible();
+});
+
+test("stream failures preserve partial output and retry to a completed reply", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&empty=1&fail=1");
+  await page.getByTestId("input-chat-message").fill("Keep partial output");
+  await page.getByTestId("button-send-message").click();
+
+  await expect(page.getByTestId("content-message-assistant-1")).toContainText("A partial answer");
+  await expect(page.getByTestId("button-retry-message")).toBeVisible();
+  await page.getByTestId("button-retry-message").click();
+  await expect(page.getByTestId("content-message-assistant-1")).toContainText("A helpful reply");
+});
+
+test("reading earlier messages pauses auto-scroll and provides a latest-message control", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest");
+  const scrollArea = page.getByTestId("content-chat-messages");
+  await page.getByTestId("input-chat-message").focus();
+  await page.locator(".message-thread").evaluate((element) => {
+    (element as HTMLElement).style.minHeight = "1800px";
+  });
+  await scrollArea.evaluate((element) => {
+    (element as HTMLElement).scrollTop = 360;
+  });
+  const earlierPosition = await scrollArea.evaluate((element) => (element as HTMLElement).scrollTop);
+
+  await page.getByTestId("input-chat-message").fill("A new follow-up");
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("content-message-assistant-3")).toContainText("A helpful reply");
+  await expect.poll(() => scrollArea.evaluate((element) => (element as HTMLElement).scrollTop))
+    .toBeLessThan(500);
+  await page.getByTestId("button-jump-to-latest").click();
+  await expect.poll(() => scrollArea.evaluate((element) => (element as HTMLElement).scrollTop))
+    .toBeGreaterThan(earlierPosition);
+});
+
+test("pasting an image attaches a visible preview", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&empty=1");
+  await page.getByTestId("input-chat-message").evaluate((element) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array([137, 80, 78, 71])], "pasted.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      clipboardData: transfer,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+
+  await expect(page.getByTestId("chip-attachment-0")).toContainText("pasted.png");
+  await expect(page.getByAltText("Preview of pasted.png")).toBeVisible();
+});
+
+test("dropping an image attaches a visible preview", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&empty=1");
+  await page.getByTestId("form-chat-composer").evaluate((form) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array([137, 80, 78, 71])], "dropped.png", { type: "image/png" }));
+    form.dispatchEvent(new DragEvent("drop", {
+      dataTransfer: transfer,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+
+  await expect(page.getByTestId("chip-attachment-0")).toContainText("dropped.png");
+  await expect(page.getByAltText("Preview of dropped.png")).toBeVisible();
+});
+
+test("attachment uploads announce their current progress", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&empty=1&slowUpload=1");
+  await page.getByTestId("button-open-attachments").click();
+  await page.getByTestId("button-choose-images").click();
+  await page.getByTestId("input-upload-images").setInputFiles({
+    name: "progress.png",
+    mimeType: "image/png",
+    buffer: Buffer.from([137, 80, 78, 71]),
+  });
+  await page.getByTestId("button-send-message").click();
+
+  await expect(page.getByTestId("status-upload-progress")).toContainText("50%");
+  await expect(page.getByRole("progressbar", { name: "Attachment upload 50%" })).toBeVisible();
+  await expect(page.getByTestId("content-message-assistant-1")).toContainText("A helpful reply");
+});
+
+test("account conversation rename calls the existing rename endpoint", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account");
+  await page.getByTestId("button-rename-chat-33333333-3333-4333-8333-333333333333").click();
+  const textbox = page.getByTestId("input-rename-chat-33333333-3333-4333-8333-333333333333");
+  await textbox.fill("Renamed account chat");
+  await textbox.press("Enter");
+
+  await expect(page.locator(".history-chat-name")).toHaveText("Renamed account chat");
+  const renameRequest = await page.evaluate(() =>
+    (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests.find((request) =>
+      request.path === "/api/conversations/33333333-3333-4333-8333-333333333333" &&
+      request.method === "PATCH"),
+  );
+  expect(renameRequest?.body).toEqual({ title: "Renamed account chat" });
+});

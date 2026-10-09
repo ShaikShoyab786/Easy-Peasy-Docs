@@ -24,7 +24,22 @@ const sampleMessages = [
     id: "55555555-5555-4555-8555-555555555555",
     conversationId: accountConversationId,
     role: "assistant",
-    content: params.get("table") === "1"
+    content: params.get("rich") === "1"
+      ? [
+          "```typescript",
+          "const answer: number = 42;",
+          "```",
+          "",
+          "A [useful link](https://example.com) and ~~old text~~.",
+          "",
+          "> A quoted idea.",
+          "",
+          "- parent",
+          "  - nested child",
+          "",
+          "Inline math: $a^2 + b^2 = c^2$.",
+        ].join("\n")
+      : params.get("table") === "1"
       ? [
           "**Simple Table Summary of CMEP Scheme**",
           "",
@@ -56,6 +71,13 @@ function streamResponse(event: unknown) {
   });
 }
 
+function eventStreamResponse(events: unknown[]) {
+  return new Response(`${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}`, {
+    status: 201,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
 const nativeFetch = window.fetch.bind(window);
 const testWindow = window as Window & { __chatTestState?: ChatTestState };
 const testState: ChatTestState = { requests: [] };
@@ -65,6 +87,7 @@ const fixtureMessages = new Map<string, typeof sampleMessages>([
   [accountConversationId, sampleMessages],
 ]);
 let generatedMessageId = 0;
+let guestRequestCount = 0;
 window.fetch = (input, init) => {
   const requestUrl =
     typeof input === "string"
@@ -96,12 +119,23 @@ window.fetch = (input, init) => {
     return Promise.resolve(jsonResponse({ items: fixtureConversations }));
   }
 
+  const renameMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/);
+  if (renameMatch && method === "PATCH") {
+    const renameBody = body as { title?: string } | undefined;
+    const renamed = fixtureConversations.find((item) => item.id === renameMatch[1]);
+    if (!renamed || !renameBody?.title) return Promise.resolve(jsonResponse({ error: "Conversation not found." }, 404));
+    const updated = { ...renamed, title: renameBody.title, updatedAt: new Date().toISOString() };
+    fixtureConversations = fixtureConversations.map((item) => item.id === updated.id ? updated : item);
+    return Promise.resolve(jsonResponse(updated));
+  }
+
   const messagesMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
   if (messagesMatch && method === "GET") {
     return Promise.resolve(jsonResponse({ items: fixtureMessages.get(messagesMatch[1]) ?? [] }));
   }
 
   if (pathname === "/api/guest-chat" && method === "POST") {
+    guestRequestCount += 1;
     const guestBody = body as { messages?: { content: string }[] | string } | undefined;
     let messages = guestBody?.messages;
     if (typeof messages === "string") {
@@ -112,6 +146,32 @@ window.fetch = (input, init) => {
       }
     }
     const content = Array.isArray(messages) ? messages.at(-1)?.content ?? "" : "";
+    if (params.get("fail") === "1" && guestRequestCount === 1) {
+      return Promise.resolve(eventStreamResponse([
+        { type: "delta", content: "A partial answer that should stay visible." },
+        { type: "error", error: "The test stream was interrupted." },
+      ]));
+    }
+    if (params.get("slow") === "1") {
+      const signal = init?.signal;
+      return Promise.resolve(new Response(new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "delta", content: "This text arrived before stop." })}\n\n`));
+          const timer = window.setTimeout(() => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", content: `A helpful reply to: ${content}` })}\n\n`));
+            controller.close();
+          }, 30_000);
+          signal?.addEventListener("abort", () => {
+            window.clearTimeout(timer);
+            controller.error(new DOMException("The stream was aborted.", "AbortError"));
+          }, { once: true });
+        },
+      }), {
+        status: 201,
+        headers: { "Content-Type": "text/event-stream" },
+      }));
+    }
     return Promise.resolve(streamResponse({
       type: "done",
       content: `A helpful reply to: ${content}`,
@@ -202,6 +262,60 @@ window.fetch = (input, init) => {
 
   return nativeFetch(input, init);
 };
+
+class FixtureXMLHttpRequest {
+  upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
+  onprogress: (() => void) | null = null;
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onabort: (() => void) | null = null;
+  status = 0;
+  responseText = "";
+  private method = "GET";
+  private url = "";
+  private requestHeaders: Record<string, string> = {};
+  private responseHeaders = new Headers();
+
+  open(method: string, url: string) {
+    this.method = method;
+    this.url = url;
+  }
+  setRequestHeader(name: string, value: string) {
+    this.requestHeaders[name] = value;
+  }
+  getResponseHeader(name: string) {
+    return this.responseHeaders.get(name);
+  }
+  send(body?: XMLHttpRequestBodyInit | Document | null) {
+    const total = body instanceof FormData ? body.entries().next().done === false ? 1024 : 1 : 1;
+    const delayedUpload = body instanceof FormData &&
+      new URLSearchParams(window.location.search).get("slowUpload") === "1";
+    this.upload.onprogress?.(new ProgressEvent("progress", {
+      lengthComputable: true,
+      loaded: delayedUpload ? Math.floor(total / 2) : total,
+      total,
+    }));
+    const completeRequest = () => {
+      void window.fetch(this.url, {
+        method: this.method,
+        headers: this.requestHeaders,
+        body: body as BodyInit | null | undefined,
+      }).then(async (response) => {
+        this.status = response.status;
+        this.responseHeaders = response.headers;
+        this.responseText = await response.text();
+        this.onprogress?.();
+        this.onload?.();
+      }).catch(() => this.onerror?.());
+    };
+    if (delayedUpload) window.setTimeout(completeRequest, 450);
+    else completeRequest();
+  }
+  abort() {
+    this.onabort?.();
+  }
+}
+window.XMLHttpRequest = FixtureXMLHttpRequest as unknown as typeof XMLHttpRequest;
 
 const mode = new URLSearchParams(window.location.search).get("mode") === "account"
   ? "account"
