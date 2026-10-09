@@ -4,5 +4,7 @@ export const modules: ModuleMap = {
   "./components/mockups/easy-peasy-docs/CurrentDocuments.tsx": () => import("../components/mockups/easy-peasy-docs/CurrentDocuments.tsx"),
   "./components/mockups/easy-peasy-docs/CurrentHome.tsx": () => import("../components/mockups/easy-peasy-docs/CurrentHome.tsx"),
   "./components/mockups/easy-peasy-docs/EasyPeasyDocuments.tsx": () => import("../components/mockups/easy-peasy-docs/EasyPeasyDocuments.tsx"),
-  "./components/mockups/easy-peasy-docs/EasyPeasyHome.tsx": () => import("../components/mockups/easy-peasy-docs/EasyPeasyHome.tsx")
+  "./components/mockups/easy-peasy-docs/EasyPeasyHome.tsx": () => import("../components/mockups/easy-peasy-docs/EasyPeasyHome.tsx"),
+  "./components/mockups/easy-peasy-docs-navigation/Current.tsx": () => import("../components/mockups/easy-peasy-docs-navigation/Current.tsx"),
+  "./components/mockups/easy-peasy-docs-navigation/KnowledgeHub.tsx": () => import("../components/mockups/easy-peasy-docs-navigation/KnowledgeHub.tsx")
 };

@@ -1,0 +1,112 @@
+.chat-new-button {
+  min-height: 44px;
+  margin-top: 22px;
+  border: 0;
+  background: linear-gradient(108deg, #4f46e5 0%, #6255d9 58%, #0f9e9a 100%);
+  padding: 0 13px;
+  color: #fff;
+  box-shadow: 0 7px 17px rgba(76, 70, 190, .19);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.chat-new-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(76, 70, 190, .24);
+}
+
+.chat-new-button > svg {
+  color: #fff;
+}
+
+.chat-knowledge-button {
+  display: flex;
+  width: 100%;
+  min-height: 66px;
+  align-items: center;
+  gap: 11px;
+  margin-top: 10px;
+  border: 1px solid rgba(20, 143, 146, .2);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fff 0%, #f8fcff 60%, #f1fbf9 100%);
+  padding: 10px;
+  color: #34414b;
+  text-align: left;
+  box-shadow: 0 7px 18px rgba(38, 58, 82, .055);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.chat-knowledge-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(20, 143, 146, .42);
+  box-shadow: 0 10px 22px rgba(38, 58, 82, .09);
+}
+
+.chat-knowledge-button.is-active {
+  border-color: rgba(20, 143, 146, .34);
+  box-shadow: 0 8px 20px rgba(28, 114, 123, .09);
+}
+
+.chat-knowledge-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #e5e9ff, #d6f7f0);
+  color: #108984;
+  box-shadow: 0 3px 8px rgba(50, 132, 139, .1);
+}
+
+.chat-knowledge-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+.chat-knowledge-chevron {
+  flex: none;
+  color: #90a0a7;
+}
+
+.chat-history-label {
+  margin-top: 22px;
+}
+
+.knowledge-hub-view {
+  background:
+    radial-gradient(ellipse at 50% 44%, rgba(239, 249, 248, .55), transparent 46%),
+    #fff;
+}
+
+.knowledge-hub-mark {
+  width: 70px;
+  height: 70px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #ecefff, #daf6f0);
+  color: #128a88;
+  box-shadow: 0 12px 28px rgba(40, 105, 130, .12);
+}
+
+.knowledge-hub-hero h1 {
+  max-width: 600px;
+  font-size: clamp(33px, 3.75vw, 47px);
+}
+
+.knowledge-hub-subtitle {
+  max-width: 420px;
+}
+
+@media (max-width: 767px) {
+  .chat-new-button {
+    margin-top: 22px;
+  }
+
+  .knowledge-hub-hero h1 {
+    max-width: 420px;
+    font-size: clamp(30px, 8.7vw, 39px);
+  }
+}

@@ -10,7 +10,7 @@ import {
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckCheck, Clipboard, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Pencil, Plus, RotateCw, Search, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, Check, CheckCheck, Clipboard, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Pencil, Plus, RotateCw, Search, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import { Link } from "wouter";
 import { AccountActions } from "./account-actions";
 import { requestChatStream } from "./lib/chat-stream";
@@ -169,6 +169,7 @@ function accountChatRequestBody(
 
 export function ChatWorkspace({ mode }: { mode: Mode }) {
   const isGuest = mode === "guest";
+  const [knowledgeHubOpen, setKnowledgeHubOpen] = useState(false);
   const queryClient = useQueryClient();
   const conversationsQuery = useListConversations({ query: { enabled: !isGuest, queryKey: getListConversationsQueryKey() } });
   const deleteConversation = useDeleteConversation();
@@ -493,6 +494,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   }
 
   function makeNewChat() {
+    setKnowledgeHubOpen(false);
     setWorkspaceError("");
     setAccountError("");
     if (isGuest) {
@@ -849,6 +851,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   }
 
   function selectChat(id: string) {
+    setKnowledgeHubOpen(false);
     if (isGuest) {
       guestSelectedIdRef.current = id;
       setGuestSelectedId(id);
@@ -865,6 +868,12 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     setAttachmentError("");
     setAttachmentMenuOpen(false);
     setMobileSidebarOpen(false);
+  }
+
+  function openKnowledgeHub() {
+    setKnowledgeHubOpen(true);
+    setMobileSidebarOpen(false);
+    setAttachmentMenuOpen(false);
   }
 
   const guestSorted = sortedGuestConversations;
@@ -903,6 +912,16 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         <button type="button" className="chat-new-button" onClick={makeNewChat} data-testid="button-new-chat">
           <Plus size={16} />
           <span>New chat</span>
+        </button>
+        <button
+          type="button"
+          className={`chat-knowledge-button ${knowledgeHubOpen ? "is-active" : ""}`}
+          onClick={openKnowledgeHub}
+          aria-current={knowledgeHubOpen ? "page" : undefined}
+          data-testid="button-knowledge-hub"
+        >
+          <span className="chat-knowledge-icon"><BookOpen size={18} strokeWidth={1.8} /></span>
+          <span className="chat-knowledge-title">Knowledge Hub</span>
         </button>
         <div className="chat-history-label"><span>RECENT</span><span>{visibleHistoryItems.length}</span></div>
         <label className="conversation-search">
@@ -993,7 +1012,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       </aside>
       {mobileSidebarOpen && <button type="button" className="chat-scrim" aria-label="Close navigation" onClick={() => setMobileSidebarOpen(false)} />}
 
-      <section className="chat-main" aria-label="Conversation">
+      <section className="chat-main" aria-label={knowledgeHubOpen ? "Knowledge Hub" : "Conversation"}>
         <header className="chat-topbar">
           <button
             type="button"
@@ -1011,11 +1030,22 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           <div className="chat-top-title">
             <span className="chat-presence"><span /> Easy Peasy</span>
             <span className="top-title-divider">/</span>
-            <span className="top-chat-title">{activeTitle || "New chat"}</span>
+            <span className="top-chat-title">{knowledgeHubOpen ? "Knowledge Hub" : activeTitle || "New chat"}</span>
           </div>
           <button type="button" className="top-new-button" onClick={makeNewChat} aria-label="Start a new chat" data-testid="button-new-chat-top"><Plus size={17} /></button>
         </header>
 
+        {knowledgeHubOpen ? (
+          <div className="knowledge-hub-view" data-testid="page-knowledge-hub">
+            <div className="knowledge-hub-hero">
+              <div className="knowledge-hub-mark"><BookOpen size={27} strokeWidth={1.6} /></div>
+              <p className="knowledge-hub-kicker">KNOWLEDGE HUB</p>
+              <h1>Knowledge Hub — Coming Soon</h1>
+              <p className="knowledge-hub-subtitle">Document intelligence and RAG features are under development.</p>
+            </div>
+          </div>
+        ) : (
+          <>
         <div
           ref={scrollAreaRef}
           className={`chat-scroll-area ${isEmpty ? "is-empty" : ""}`}
@@ -1342,6 +1372,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
             </div>
           </form>
         </div>
+          </>
+        )}
       </section>
     </main>
   );
