@@ -56,6 +56,15 @@ export default defineConfig({
         '..',
         'attached_assets',
       ),
+      ...(process.env.CHAT_LAYOUT_TESTS === '1'
+        ? {
+            '@clerk/react': path.resolve(
+              import.meta.dirname,
+              'tests',
+              'clerk-test-shim.ts',
+            ),
+          }
+        : {}),
     },
     dedupe: ['react', 'react-dom'],
   },
