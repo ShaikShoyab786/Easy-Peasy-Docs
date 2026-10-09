@@ -441,60 +441,13 @@
 .chat-knowledge-chevron { flex: none; color: #90a0a7; }
 .chat-history-label { margin-top: 22px; }
 .knowledge-hub-view {
-  display: grid;
+  display: flex;
   min-height: 0;
+  min-width: 0;
   flex: 1;
-  place-items: center;
-  padding: 36px;
-  background:
-    radial-gradient(ellipse at 50% 44%, rgba(239, 249, 248, .55), transparent 46%),
-    #fff;
-}
-.knowledge-hub-hero {
-  display: grid;
-  max-width: 760px;
-  justify-items: center;
-  text-align: center;
-  transform: translateY(-16px);
-}
-.knowledge-hub-mark {
-  display: grid;
-  width: 70px;
-  height: 70px;
-  place-items: center;
-  margin-bottom: 25px;
-  border: 1px solid #d5eeea;
-  border-radius: 22px;
-  background: linear-gradient(145deg, #ecefff, #daf6f0);
-  color: #128a88;
-  box-shadow: 0 12px 28px rgba(40, 105, 130, .12);
-}
-.knowledge-hub-kicker {
-  margin: 0 0 11px;
-  color: #72808a;
-  font-family: 'DM Mono', monospace;
-  font-size: 9px;
-  letter-spacing: .17em;
-}
-.knowledge-hub-hero h1 {
-  max-width: 740px;
-  margin: 0;
-  color: #26313b;
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(33px, 3.75vw, 47px);
-  font-weight: 500;
-  letter-spacing: -.06em;
-  line-height: 1.08;
-}
-.knowledge-hub-subtitle {
-  max-width: 420px;
-  margin: 17px 0 0;
-  color: #7b8790;
-  font-size: 14px;
-  line-height: 1.72;
+  overflow: hidden;
+  background: #fafbfd;
 }
 @media (max-width: 767px) {
   .chat-new-button { margin-top: 22px; }
-  .knowledge-hub-view { padding: 24px; }
-  .knowledge-hub-hero h1 { max-width: 420px; font-size: clamp(30px, 8.7vw, 39px); }
 }

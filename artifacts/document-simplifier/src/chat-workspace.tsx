@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
+  getKnowledgeDocumentContent,
   getListConversationMessagesQueryKey,
   getListConversationsQueryKey,
   useDeleteConversation,
@@ -8,11 +9,12 @@ import {
   useListConversations,
   useRenameConversation,
 } from "@workspace/api-client-react";
-import type { Conversation, GuestChatMessage, Message } from "@workspace/api-client-react";
+import type { Conversation, GuestChatMessage, KnowledgeDocument, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Clipboard, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Pencil, Plus, RotateCw, Search, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { AccountActions } from "./account-actions";
+import { KnowledgeHubDashboard } from "./components/knowledge-hub-dashboard";
 import { requestChatStream } from "./lib/chat-stream";
 
 const RichMarkdown = lazy(() =>
@@ -169,6 +171,7 @@ function accountChatRequestBody(
 
 export function ChatWorkspace({ mode }: { mode: Mode }) {
   const isGuest = mode === "guest";
+  const [, setLocation] = useLocation();
   const [knowledgeHubOpen, setKnowledgeHubOpen] = useState(false);
   const queryClient = useQueryClient();
   const conversationsQuery = useListConversations({ query: { enabled: !isGuest, queryKey: getListConversationsQueryKey() } });
@@ -876,6 +879,29 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     setAttachmentMenuOpen(false);
   }
 
+  function redirectKnowledgeHubGuestToSignIn() {
+    setKnowledgeHubOpen(false);
+    setLocation("/sign-in");
+  }
+
+  async function startChatWithKnowledgeDocument(document: KnowledgeDocument) {
+    const content = await getKnowledgeDocumentContent(document.id, {
+      responseType: "blob",
+    });
+    if (content.size !== document.byteSize) {
+      throw new Error("The document could not be loaded completely.");
+    }
+    const file = new File([content], document.fileName, {
+      type: document.contentType,
+    });
+    makeNewChat();
+    setSelectedFiles([file]);
+    setAttachmentError("");
+    const prompt = "Summarize and simplify the attached file.";
+    autoDraftRef.current = prompt;
+    setDraft(prompt);
+  }
+
   const guestSorted = sortedGuestConversations;
   const accountSorted = sortedAccountConversations;
   const accountLoading = !isGuest && conversationsQuery.isLoading;
@@ -1038,12 +1064,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
         {knowledgeHubOpen ? (
           <div className="knowledge-hub-view" data-testid="page-knowledge-hub">
-            <div className="knowledge-hub-hero">
-              <div className="knowledge-hub-mark"><BookOpen size={27} strokeWidth={1.6} /></div>
-              <p className="knowledge-hub-kicker">KNOWLEDGE HUB</p>
-              <h1>Knowledge Hub — Coming Soon</h1>
-              <p className="knowledge-hub-subtitle">Document intelligence and RAG features are under development.</p>
-            </div>
+            <KnowledgeHubDashboard
+              isGuest={isGuest}
+              onSignIn={redirectKnowledgeHubGuestToSignIn}
+              onViewChat={startChatWithKnowledgeDocument}
+            />
           </div>
         ) : (
           <>

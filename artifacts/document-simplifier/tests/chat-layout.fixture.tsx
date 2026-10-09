@@ -53,6 +53,27 @@ const sampleMessages = [
   },
 ];
 
+type KnowledgeFixtureDocument = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  isPinned: boolean;
+  status: "pending_upload" | "ready";
+  createdAt: string;
+};
+
+const sampleDocumentContent = "%PDF-1.7\nSample operations policy.\n";
+const sampleKnowledgeDocument: KnowledgeFixtureDocument = {
+  id: "a3333333-3333-4333-8333-333333333333",
+  fileName: "Operations policy.pdf",
+  contentType: "application/pdf",
+  byteSize: new TextEncoder().encode(sampleDocumentContent).byteLength,
+  isPinned: false,
+  status: "ready",
+  createdAt: "2026-10-08T12:00:00.000Z",
+};
+
 type ChatTestState = {
   requests: { path: string; method: string; body: unknown }[];
 };
@@ -83,10 +104,17 @@ const testWindow = window as Window & { __chatTestState?: ChatTestState };
 const testState: ChatTestState = { requests: [] };
 testWindow.__chatTestState = testState;
 let fixtureConversations = [sampleConversation];
+let fixtureDocuments: KnowledgeFixtureDocument[] = params.get("documents") === "1"
+  ? [sampleKnowledgeDocument]
+  : [];
+const fixtureDocumentBytes = new Map<string, Blob>([
+  [sampleKnowledgeDocument.id, new Blob([sampleDocumentContent], { type: sampleKnowledgeDocument.contentType })],
+]);
 const fixtureMessages = new Map<string, typeof sampleMessages>([
   [accountConversationId, sampleMessages],
 ]);
 let generatedMessageId = 0;
+let generatedDocumentId = 0;
 let guestRequestCount = 0;
 window.fetch = (input, init) => {
   const requestUrl =
@@ -117,6 +145,91 @@ window.fetch = (input, init) => {
 
   if (pathname === "/api/conversations" && method === "GET") {
     return Promise.resolve(jsonResponse({ items: fixtureConversations }));
+  }
+
+  if (pathname === "/api/knowledge-documents" && method === "GET") {
+    return Promise.resolve(jsonResponse({ items: fixtureDocuments }));
+  }
+
+  if (pathname === "/api/knowledge-documents/uploads/request-url" && method === "POST") {
+    const upload = body as { fileName?: string; byteSize?: number } | undefined;
+    if (!upload?.fileName || !upload.byteSize) {
+      return Promise.resolve(jsonResponse({ error: "Invalid file metadata." }, 400));
+    }
+    generatedDocumentId += 1;
+    const id = `b3333333-3333-4333-8333-${generatedDocumentId.toString().padStart(12, "0")}`;
+    const extension = upload.fileName.split(".").pop()?.toLowerCase();
+    const contentType = extension === "txt"
+      ? "text/plain"
+      : extension === "csv"
+        ? "text/csv"
+        : "application/pdf";
+    const document: KnowledgeFixtureDocument = {
+      id,
+      fileName: upload.fileName,
+      contentType,
+      byteSize: upload.byteSize,
+      isPinned: false,
+      status: "pending_upload",
+      createdAt: new Date().toISOString(),
+    };
+    fixtureDocuments = [document, ...fixtureDocuments];
+    return Promise.resolve(jsonResponse({
+      document,
+      uploadUrl: `https://uploads.test/${id}`,
+    }, 201));
+  }
+
+  if (new URL(requestUrl, window.location.origin).hostname === "uploads.test" && method === "PUT") {
+    const documentId = pathname.slice(1);
+    const bytes = init?.body instanceof Blob
+      ? init.body
+      : new Blob([String(init?.body ?? "")]);
+    fixtureDocumentBytes.set(documentId, bytes);
+    return Promise.resolve(new Response(null, { status: 200 }));
+  }
+
+  const completeDocumentMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/complete$/);
+  if (completeDocumentMatch && method === "POST") {
+    const document = fixtureDocuments.find((item) => item.id === completeDocumentMatch[1]);
+    if (!document || !fixtureDocumentBytes.has(document.id)) {
+      return Promise.resolve(jsonResponse({ error: "Document upload not found." }, 404));
+    }
+    const readyDocument = { ...document, status: "ready" as const };
+    fixtureDocuments = fixtureDocuments.map((item) => item.id === document.id ? readyDocument : item);
+    return Promise.resolve(jsonResponse(readyDocument));
+  }
+
+  const documentContentMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/content$/);
+  if (documentContentMatch && method === "GET") {
+    const document = fixtureDocuments.find((item) => item.id === documentContentMatch[1]);
+    const content = fixtureDocumentBytes.get(documentContentMatch[1]);
+    if (!document || !content || document.status !== "ready") {
+      return Promise.resolve(jsonResponse({ error: "Document not found." }, 404));
+    }
+    return Promise.resolve(new Response(content, {
+      status: 200,
+      headers: { "Content-Type": document.contentType },
+    }));
+  }
+
+  const pinDocumentMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/pin$/);
+  if (pinDocumentMatch && method === "PATCH") {
+    const document = fixtureDocuments.find((item) => item.id === pinDocumentMatch[1]);
+    const pinBody = body as { isPinned?: boolean } | undefined;
+    if (!document || typeof pinBody?.isPinned !== "boolean") {
+      return Promise.resolve(jsonResponse({ error: "Document not found." }, 404));
+    }
+    const updatedDocument = { ...document, isPinned: pinBody.isPinned };
+    fixtureDocuments = fixtureDocuments.map((item) => item.id === document.id ? updatedDocument : item);
+    return Promise.resolve(jsonResponse(updatedDocument));
+  }
+
+  const deleteDocumentMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)$/);
+  if (deleteDocumentMatch && method === "DELETE") {
+    fixtureDocuments = fixtureDocuments.filter((item) => item.id !== deleteDocumentMatch[1]);
+    fixtureDocumentBytes.delete(deleteDocumentMatch[1]);
+    return Promise.resolve(new Response(null, { status: 204 }));
   }
 
   const renameMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/);

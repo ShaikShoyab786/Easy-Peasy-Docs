@@ -450,6 +450,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Object Storage could not prepare the upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /knowledge-documents/{documentId}/complete:
     parameters:
       - name: documentId
@@ -485,6 +491,12 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "409":
           description: Uploaded file did not match its reserved metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: The uploaded file could not be verified
           content:
             application/json:
               schema:
@@ -599,6 +611,12 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: The stored file could not be opened
           content:
             application/json:
               schema:

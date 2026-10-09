@@ -115,6 +115,26 @@ export class ObjectStorageService {
     });
   }
 
+  async getKnowledgeDocumentUploadTarget(
+    ownerId: string,
+    documentId: string,
+  ): Promise<{ uploadUrl: string; objectPath: string }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(ownerId)) {
+      throw new Error("Invalid authenticated user identifier.");
+    }
+    const relativePath = `uploads/knowledge-hub/${ownerId}/${documentId}`;
+    const { bucketName, objectName } = parseObjectPath(
+      `${this.getPrivateObjectDir()}/${relativePath}`,
+    );
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: 900,
+    });
+    return { uploadUrl, objectPath: `/objects/${relativePath}` };
+  }
+
   async getObjectEntityFile(objectPath: string): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();
