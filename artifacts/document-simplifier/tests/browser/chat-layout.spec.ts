@@ -72,6 +72,15 @@ test.describe("mobile navigation", () => {
   });
 });
 
+test("focused composer has no rectangle outline", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest");
+  const composer = page.getByRole("textbox", { name: "Write a message" });
+
+  await composer.focus();
+  await expect(composer).toHaveCSS("outline-style", "none");
+  await expect(composer).toHaveCSS("border-top-width", "0px");
+});
+
 for (const mode of ["guest", "account"] as const) {
   test(`${mode} mode keeps the composer and messages readable on desktop and mobile`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
