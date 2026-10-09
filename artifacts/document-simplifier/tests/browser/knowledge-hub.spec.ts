@@ -88,3 +88,31 @@ test("account Knowledge Hub can return to a new chat", async ({ page }) => {
   await expect(page.getByTestId("page-knowledge-hub")).toHaveCount(0);
   await expect(page.getByTestId("form-chat-composer")).toBeVisible();
 });
+
+test("Knowledge Hub fills the available main-panel width on desktop and compact layouts", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
+  await page.getByTestId("button-knowledge-hub").click();
+
+  for (const width of [1280, 900, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    const dimensions = await page.evaluate(() => {
+      const view = document.querySelector<HTMLElement>('[data-testid="page-knowledge-hub"]');
+      const dashboard = document.querySelector<HTMLElement>('[data-testid="page-knowledge-hub-dashboard"]');
+      const content = dashboard?.querySelector<HTMLElement>(".kh-content");
+      if (!view || !dashboard || !content) return null;
+      return {
+        viewLeft: view.getBoundingClientRect().left,
+        viewWidth: view.getBoundingClientRect().width,
+        dashboardLeft: dashboard.getBoundingClientRect().left,
+        dashboardWidth: dashboard.getBoundingClientRect().width,
+        contentWidth: content.getBoundingClientRect().width,
+      };
+    });
+
+    expect(dimensions).not.toBeNull();
+    expect(Math.abs(dimensions!.dashboardLeft - dimensions!.viewLeft)).toBeLessThan(1);
+    expect(dimensions!.dashboardWidth).toBeGreaterThanOrEqual(dimensions!.viewWidth - 1);
+    expect(dimensions!.contentWidth).toBeGreaterThanOrEqual(dimensions!.dashboardWidth - 1);
+  }
+});
