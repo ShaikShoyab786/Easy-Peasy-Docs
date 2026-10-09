@@ -9,7 +9,11 @@ import {
   streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
-import { wantsChatStream, writeChatStreamEvent } from "../lib/chatStream";
+import {
+  startChatStreamHeartbeat,
+  wantsChatStream,
+  writeChatStreamEvent,
+} from "../lib/chatStream";
 
 const router: IRouter = Router();
 
@@ -134,6 +138,7 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
     const abortOnDisconnect = () => {
       if (!res.writableEnded) controller.abort();
     };
+    const stopHeartbeat = startChatStreamHeartbeat(res);
     res.on("close", abortOnDisconnect);
     try {
       const content = await streamGrokChatReply(
@@ -178,6 +183,7 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
         res.status(503).json({ error: message });
       }
     } finally {
+      stopHeartbeat();
       res.off("close", abortOnDisconnect);
     }
     return;

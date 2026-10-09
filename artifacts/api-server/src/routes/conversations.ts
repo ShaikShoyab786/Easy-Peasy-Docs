@@ -21,7 +21,11 @@ import {
   streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
-import { wantsChatStream, writeChatStreamEvent } from "../lib/chatStream";
+import {
+  startChatStreamHeartbeat,
+  wantsChatStream,
+  writeChatStreamEvent,
+} from "../lib/chatStream";
 import {
   getAuthenticatedUserId,
   requireAuth,
@@ -447,6 +451,7 @@ router.post(
       const abortOnDisconnect = () => {
         if (!res.writableEnded) streamController?.abort();
       };
+      const stopHeartbeat = startChatStreamHeartbeat(res, 201);
       res.on("close", abortOnDisconnect);
       try {
         assistantReply = await streamGrokChatReply(
@@ -461,7 +466,6 @@ router.post(
         );
       } catch (error) {
         if (streamController.signal.aborted) {
-          res.off("close", abortOnDisconnect);
           return;
         }
         if (error instanceof GrokChatError) {
@@ -489,10 +493,11 @@ router.post(
             res.status(503).json({ error: message });
           }
         }
-        res.off("close", abortOnDisconnect);
         return;
+      } finally {
+        stopHeartbeat();
+        res.off("close", abortOnDisconnect);
       }
-      res.off("close", abortOnDisconnect);
       if (streamController.signal.aborted) return;
     } else {
       try {

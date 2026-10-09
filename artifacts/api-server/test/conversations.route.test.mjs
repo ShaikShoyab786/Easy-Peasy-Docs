@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { EventEmitter } from "node:events";
 import { build } from "esbuild";
 import express from "express";
 import { mkdir, rm } from "node:fs/promises";
@@ -8,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bundlePath = path.join(testDir, ".cache", "conversations.route.mjs");
+const chatStreamBundlePath = path.join(testDir, ".cache", "chatStream.mjs");
 const draftId = "d8f6f3a4-390f-4c25-a529-25dc45772f0f";
 const ownerId = "route-test-user";
 
@@ -364,6 +366,37 @@ let server;
 let baseUrl;
 let route;
 let harness;
+let startChatStreamHeartbeat;
+
+class FakeResponse extends EventEmitter {
+  constructor() {
+    super();
+    this.destroyed = false;
+    this.writableEnded = false;
+    this.headersSent = false;
+    this.statusCode = 200;
+    this.headers = new Map();
+    this.chunks = [];
+  }
+
+  status(statusCode) {
+    this.statusCode = statusCode;
+    return this;
+  }
+
+  setHeader(name, value) {
+    this.headers.set(name.toLowerCase(), value);
+  }
+
+  flushHeaders() {
+    this.headersSent = true;
+  }
+
+  write(chunk) {
+    this.chunks.push(chunk);
+    return true;
+  }
+}
 
 before(async () => {
   await mkdir(path.dirname(bundlePath), { recursive: true });
@@ -376,6 +409,17 @@ before(async () => {
     packages: "external",
     plugins: [mockPlugin()],
   });
+  await build({
+    entryPoints: [path.join(testDir, "../src/lib/chatStream.ts")],
+    outfile: chatStreamBundlePath,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+  });
+  ({ startChatStreamHeartbeat } = await import(
+    pathToFileURL(chatStreamBundlePath).href
+  ));
 
   harness = {
     db: createFakeDatabase(),
@@ -486,4 +530,24 @@ test("a database failure rolls back the new conversation and both messages", asy
   assert.equal(harness.db.state.transactionAttempts, 1);
   assert.equal(harness.db.state.conversations.size, 0);
   assert.equal(harness.db.state.messages.length, 0);
+});
+
+test("stream heartbeats keep the response open and stop when cleaned up", async () => {
+  const response = new FakeResponse();
+  const stopHeartbeat = startChatStreamHeartbeat(response, 201, 5);
+
+  await new Promise((resolve) => setTimeout(resolve, 18));
+  stopHeartbeat();
+
+  const heartbeatCount = response.chunks.length;
+  assert.ok(heartbeatCount > 0);
+  assert.ok(response.chunks.every((chunk) => chunk === ": keep-alive\n\n"));
+  assert.equal(response.statusCode, 201);
+  assert.equal(
+    response.headers.get("content-type"),
+    "text/event-stream; charset=utf-8",
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(response.chunks.length, heartbeatCount);
 });
