@@ -23,6 +23,7 @@ import {
   useSetKnowledgeDocumentPinned,
 } from "@workspace/api-client-react";
 import type { KnowledgeDocument } from "@workspace/api-client-react";
+import { getKnowledgeHubFileType, trackEvent } from "../lib/analytics";
 import "./knowledge-hub-dashboard.css";
 
 export interface KnowledgeHubDashboardProps {
@@ -168,6 +169,9 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
       await completeUpload.mutateAsync({ documentId: session.document.id });
       pendingDocumentId = null;
       await invalidateDocuments();
+      trackEvent("knowledge_hub_upload_completed", {
+        file_type: getKnowledgeHubFileType(selectedFile.name),
+      });
       setNotice({ kind: "success", text: `${selectedFile.name} is ready in your hub.` });
       setStage("idle");
       setSelectedFile(null);
@@ -192,6 +196,10 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
     try {
       await setPinned.mutateAsync({ documentId: document.id, data: { isPinned: !document.isPinned } });
       await invalidateDocuments();
+      trackEvent("knowledge_hub_pin_changed", {
+        file_type: getKnowledgeHubFileType(document.fileName),
+        is_pinned: !document.isPinned,
+      });
       setNotice({ kind: "success", text: `${document.fileName} ${document.isPinned ? "removed from" : "pinned to"} your quick access.` });
     } catch {
       setNotice({ kind: "error", text: `Could not update the pin for ${document.fileName}. Please try again.` });
@@ -207,6 +215,9 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
     try {
       await deleteDocument.mutateAsync({ documentId: document.id });
       await invalidateDocuments();
+      trackEvent("knowledge_hub_document_deleted", {
+        file_type: getKnowledgeHubFileType(document.fileName),
+      });
       setNotice({ kind: "success", text: `${document.fileName} was deleted.` });
     } catch {
       setNotice({ kind: "error", text: `Could not delete ${document.fileName}. Please try again.` });

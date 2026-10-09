@@ -1,4 +1,34 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+type CapturedAnalyticsEvent = {
+  name: string;
+  data?: Record<string, string | number | boolean>;
+};
+
+async function installAnalyticsStub(page: Page) {
+  await page.addInitScript(() => {
+    type TestWindow = Window & {
+      __capturedAnalyticsEvents: CapturedAnalyticsEvent[];
+      umami?: {
+        track(name: string, data?: Record<string, string | number | boolean>): void;
+      };
+    };
+    const testWindow = window as TestWindow;
+    testWindow.__capturedAnalyticsEvents = [];
+    testWindow.umami = {
+      track(name, data) {
+        testWindow.__capturedAnalyticsEvents.push({ name, data });
+      },
+    };
+  });
+}
+
+async function capturedAnalyticsEvents(page: Page) {
+  return page.evaluate(() =>
+    (window as Window & { __capturedAnalyticsEvents?: CapturedAnalyticsEvent[] })
+      .__capturedAnalyticsEvents ?? [],
+  );
+}
 
 test("guest Knowledge Hub is separate from recent chats and returns to the selected chat", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -24,6 +54,7 @@ test("guest Knowledge Hub is separate from recent chats and returns to the selec
 });
 
 test("account Knowledge Hub uploads, searches, pins, chats with, and deletes documents", async ({ page }) => {
+  await installAnalyticsStub(page);
   await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
   await page.getByTestId("button-knowledge-hub").click();
 
@@ -37,19 +68,32 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
 
   await page.getByTestId(`button-pin-document-${documentId}`).click();
   await expect(page.getByTestId(`card-pinned-document-${documentId}`)).toBeVisible();
+  expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
+  ]);
 
   await page.getByTestId(`button-view-chat-${documentId}`).click();
   await expect(page.getByTestId("page-knowledge-hub")).toHaveCount(0);
   await expect(page.getByTestId("chip-attachment-0")).toContainText("Operations policy.pdf");
   await expect(page.getByTestId("input-chat-message")).toHaveValue("Summarize and simplify the attached file.");
+  expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
+    { name: "knowledge_hub_view_chat_opened", data: { file_type: "pdf" } },
+  ]);
 
   await page.getByTestId("button-knowledge-hub").click();
   page.on("dialog", (dialog) => dialog.accept());
   await page.getByTestId(`button-delete-document-${documentId}`).click();
   await expect(page.getByText("No documents in your hub yet. Upload your first policy or report to get started.")).toBeVisible();
+  expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
+    { name: "knowledge_hub_view_chat_opened", data: { file_type: "pdf" } },
+    { name: "knowledge_hub_document_deleted", data: { file_type: "pdf" } },
+  ]);
 });
 
 test("account Knowledge Hub completes direct PDF, TXT, and CSV upload flow", async ({ page }) => {
+  await installAnalyticsStub(page);
   await page.goto("/tests/chat-layout.fixture.html?mode=account");
   await page.getByTestId("button-knowledge-hub").click();
   const uploads = [
@@ -76,6 +120,11 @@ test("account Knowledge Hub completes direct PDF, TXT, and CSV upload flow", asy
   expect(uploaded?.some((request) => request.method === "POST" && request.path === "/api/knowledge-documents/uploads/request-url")).toBe(true);
   expect(uploaded?.filter((request) => request.method === "PUT")).toHaveLength(3);
   expect(uploaded?.filter((request) => request.method === "POST" && request.path.endsWith("/complete"))).toHaveLength(3);
+  expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_upload_completed", data: { file_type: "pdf" } },
+    { name: "knowledge_hub_upload_completed", data: { file_type: "txt" } },
+    { name: "knowledge_hub_upload_completed", data: { file_type: "csv" } },
+  ]);
 });
 
 test("account Knowledge Hub can return to a new chat", async ({ page }) => {

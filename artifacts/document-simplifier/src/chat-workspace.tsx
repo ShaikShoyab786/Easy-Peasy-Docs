@@ -15,6 +15,7 @@ import { ArrowDown, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Clipboar
 import { Link, useLocation } from "wouter";
 import { AccountActions } from "./account-actions";
 import { KnowledgeHubDashboard } from "./components/knowledge-hub-dashboard";
+import { getKnowledgeHubFileType, trackEvent } from "./lib/analytics";
 import { requestChatStream } from "./lib/chat-stream";
 
 const RichMarkdown = lazy(() =>
@@ -900,6 +901,9 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     const prompt = "Summarize and simplify the attached file.";
     autoDraftRef.current = prompt;
     setDraft(prompt);
+    trackEvent("knowledge_hub_view_chat_opened", {
+      file_type: getKnowledgeHubFileType(document.fileName),
+    });
   }
 
   const guestSorted = sortedGuestConversations;
