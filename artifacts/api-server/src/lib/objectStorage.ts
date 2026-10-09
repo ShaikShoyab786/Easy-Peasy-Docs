@@ -11,6 +11,7 @@ import {
 } from "./objectAcl";
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+export const KNOWLEDGE_DOCUMENT_UPLOAD_URL_TTL_SECONDS = 15 * 60;
 
 export const objectStorageClient = new Storage({
   credentials: {
@@ -130,7 +131,7 @@ export class ObjectStorageService {
       bucketName,
       objectName,
       method: "PUT",
-      ttlSec: 900,
+      ttlSec: KNOWLEDGE_DOCUMENT_UPLOAD_URL_TTL_SECONDS,
     });
     return { uploadUrl, objectPath: `/objects/${relativePath}` };
   }

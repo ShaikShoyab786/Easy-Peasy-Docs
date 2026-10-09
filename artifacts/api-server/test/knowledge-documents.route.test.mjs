@@ -174,11 +174,17 @@ function createFakeDatabase() {
                   }
                   return Promise.resolve(ordered);
                 },
+                for() {
+                  return Promise.resolve(results());
+                },
               });
             },
           };
         },
       };
+    },
+    transaction(callback) {
+      return callback(this);
     },
     insert() {
       return {

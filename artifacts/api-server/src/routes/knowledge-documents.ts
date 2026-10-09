@@ -162,48 +162,64 @@ router.post(
     }
 
     const ownerId = getAuthenticatedUserId(req);
-    const document = await getOwnedKnowledgeDocument(documentId, ownerId);
-    if (!document) {
-      res.status(404).json({ error: "Document not found." });
-      return;
-    }
-    if (document.status === "ready") {
-      res.json(CompleteKnowledgeDocumentUploadResponse.parse(document));
-      return;
-    }
-
     try {
-      const file = await objectStorageService.getObjectEntityFile(
-        document.objectPath,
-      );
-      const [metadata] = await file.getMetadata();
-      const [uploadedBytes] = await file.download();
-      if (
-        uploadedBytes.byteLength !== document.byteSize ||
-        (metadata.contentType && metadata.contentType !== document.contentType) ||
-        !hasExpectedContent(document, uploadedBytes)
-      ) {
+      const result = await db.transaction(async (tx) => {
+        const [document] = await tx
+          .select()
+          .from(knowledgeDocumentsTable)
+          .where(
+            and(
+              eq(knowledgeDocumentsTable.id, documentId),
+              eq(knowledgeDocumentsTable.ownerId, ownerId),
+            ),
+          )
+          .for("update");
+
+        if (!document) return { kind: "not_found" as const };
+        if (document.status === "ready") {
+          return { kind: "ready" as const, document };
+        }
+
+        const file = await objectStorageService.getObjectEntityFile(
+          document.objectPath,
+        );
+        const [metadata] = await file.getMetadata();
+        const [uploadedBytes] = await file.download();
+        if (
+          uploadedBytes.byteLength !== document.byteSize ||
+          (metadata.contentType && metadata.contentType !== document.contentType) ||
+          !hasExpectedContent(document, uploadedBytes)
+        ) {
+          return { kind: "invalid" as const };
+        }
+
+        const [readyDocument] = await tx
+          .update(knowledgeDocumentsTable)
+          .set({ status: "ready", updatedAt: new Date() })
+          .where(
+            and(
+              eq(knowledgeDocumentsTable.id, document.id),
+              eq(knowledgeDocumentsTable.ownerId, ownerId),
+              eq(knowledgeDocumentsTable.status, "pending_upload"),
+            ),
+          )
+          .returning();
+        return readyDocument
+          ? { kind: "ready" as const, document: readyDocument }
+          : { kind: "not_found" as const };
+      });
+
+      if (result.kind === "not_found") {
+        res.status(404).json({ error: "Document not found." });
+        return;
+      }
+      if (result.kind === "invalid") {
         res.status(409).json({
           error: "The uploaded file did not match the selected document.",
         });
         return;
       }
-
-      const [readyDocument] = await db
-        .update(knowledgeDocumentsTable)
-        .set({ status: "ready", updatedAt: new Date() })
-        .where(
-          and(
-            eq(knowledgeDocumentsTable.id, document.id),
-            eq(knowledgeDocumentsTable.ownerId, ownerId),
-          ),
-        )
-        .returning();
-      if (!readyDocument) {
-        res.status(404).json({ error: "Document not found." });
-        return;
-      }
-      res.json(CompleteKnowledgeDocumentUploadResponse.parse(readyDocument));
+      res.json(CompleteKnowledgeDocumentUploadResponse.parse(result.document));
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {
         res.status(404).json({ error: "Uploaded file not found." });
