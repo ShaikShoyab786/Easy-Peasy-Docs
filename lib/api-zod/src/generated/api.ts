@@ -18,7 +18,7 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * Generates a reply from the provided conversation history without storing it on the server.
+ * Generates a reply from the provided conversation history without storing it on the server. Send requests with Accept: text/event-stream for incremental events; JSON is the default.
  * @summary Send a turn in an anonymous chat
  */
 export const sendGuestChatTurnBodyMessagesItemContentMax = 6000;
@@ -155,6 +155,7 @@ export const AddConversationMessageResponse = zod.object({
 
 
 /**
+ * Send requests with Accept: text/event-stream for incremental events; JSON is the default.
  * @summary Send a message and receive a saved assistant reply
  */
 export const SendConversationChatTurnParams = zod.object({

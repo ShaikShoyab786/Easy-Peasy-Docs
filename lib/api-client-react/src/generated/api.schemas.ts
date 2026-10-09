@@ -101,6 +101,27 @@ export interface GuestChatResponse {
   content: string;
 }
 
+export interface ChatStreamDelta {
+  type: 'delta';
+  content: string;
+}
+
+export interface ChatStreamDone {
+  type: 'done';
+  content: string;
+  items?: Message[];
+}
+
+export interface ChatStreamError {
+  type: 'error';
+  error: string;
+}
+
+/**
+ * A JSON event sent as a data field in a server-sent event stream.
+ */
+export type ChatStreamEvent = ChatStreamDelta | ChatStreamDone | ChatStreamError;
+
 export interface HealthStatus {
   status: string;
 }

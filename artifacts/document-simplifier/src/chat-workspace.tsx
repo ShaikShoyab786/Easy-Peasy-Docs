@@ -6,13 +6,12 @@ import {
   useDeleteConversation,
   useListConversationMessages,
   useListConversations,
-  useSendConversationChatTurn,
-  useSendGuestChatTurn,
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Check, Clock3, Menu, MessageSquare, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { AccountActions } from "./account-actions";
+import { requestChatStream } from "./lib/chat-stream";
 
 type Mode = "guest" | "account";
 type LocalConversation = {
@@ -85,11 +84,9 @@ function requestHistory(messages: GuestChatMessage[]) {
 export function ChatWorkspace({ mode }: { mode: Mode }) {
   const isGuest = mode === "guest";
   const queryClient = useQueryClient();
-  const guestMutation = useSendGuestChatTurn();
   const conversationsQuery = useListConversations({ query: { enabled: !isGuest, queryKey: getListConversationsQueryKey() } });
   const createConversation = useCreateConversation();
   const deleteConversation = useDeleteConversation();
-  const sendTurn = useSendConversationChatTurn();
   const [guestConversations, setGuestConversations] = useState<LocalConversation[]>(() => {
     const stored = readLocalConversations();
     return stored.length ? stored : [newLocalConversation()];
@@ -101,12 +98,20 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   const [guestSendingIds, setGuestSendingIds] = useState<string[]>([]);
+  const [guestStreamReplies, setGuestStreamReplies] = useState<Record<string, string>>({});
+  const [accountPendingTurn, setAccountPendingTurn] = useState<{
+    conversationId: string;
+    content: string;
+    reply: string;
+  } | null>(null);
   const [guestErrors, setGuestErrors] = useState<Record<string, string>>({});
   const [accountError, setAccountError] = useState("");
   const [workspaceError, setWorkspaceError] = useState("");
   const [deletingId, setDeletingId] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const guestControllersRef = useRef(new Map<string, AbortController>());
+  const accountControllerRef = useRef<AbortController | null>(null);
 
   const accountConversations = conversationsQuery.data?.items ?? [];
   const sortedGuestConversations = useMemo(
@@ -126,10 +131,15 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   });
   const accountMessages = accountMessagesQuery.data?.items ?? [];
   const messages: (GuestChatMessage | Message)[] = isGuest ? (activeGuest?.messages ?? []) : accountMessages;
-  const isSending = isGuest ? guestSendingIds.includes(guestSelectedId) : sendTurn.isPending;
+  const isSending = isGuest ? guestSendingIds.includes(guestSelectedId) : accountPendingTurn !== null;
   const currentError = isGuest ? guestErrors[guestSelectedId] : accountError;
-  const isEmpty = messages.length === 0;
+  const isEmpty = messages.length === 0 && !(accountPendingTurn?.conversationId === activeAccountId);
   const sidebarExpanded = isMobileViewport ? mobileSidebarOpen : !desktopSidebarCollapsed;
+  const streamingText = isGuest
+    ? guestStreamReplies[guestSelectedId] ?? ""
+    : accountPendingTurn?.conversationId === activeAccountId
+      ? accountPendingTurn.reply
+      : "";
 
   useEffect(() => {
     try {
@@ -138,6 +148,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       // Keep the in-memory history usable when browser storage is unavailable.
     }
   }, [guestConversations]);
+
+  useEffect(() => () => {
+    guestControllersRef.current.forEach((controller) => controller.abort());
+    accountControllerRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -163,8 +178,10 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   }, [isGuest, accountSelectedId, accountConversations]);
 
   useEffect(() => {
-    if (messages.length) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, selectedId, isSending]);
+    if (messages.length || accountPendingTurn?.conversationId === activeAccountId) {
+      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [messages.length, selectedId, isSending, streamingText, accountPendingTurn, activeAccountId]);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -241,8 +258,19 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   async function sendGuest(chatId: string, history: GuestChatMessage[]) {
     setGuestErrors((errors) => ({ ...errors, [chatId]: "" }));
     setGuestSendingIds((ids) => ids.includes(chatId) ? ids : [...ids, chatId]);
+    const controller = new AbortController();
+    guestControllersRef.current.set(chatId, controller);
+    setGuestStreamReplies((replies) => ({ ...replies, [chatId]: "" }));
     try {
-      const response = await guestMutation.mutateAsync({ data: { messages: requestHistory(history) } });
+      const response = await requestChatStream(
+        "/api/guest-chat",
+        { messages: requestHistory(history) },
+        (delta) => setGuestStreamReplies((replies) => ({
+          ...replies,
+          [chatId]: (replies[chatId] ?? "") + delta,
+        })),
+        controller.signal,
+      );
       const content = response.content.trim();
       if (!content) throw new Error("No response came back. Please try again.");
       setGuestConversations((items) => items.map((chat) => chat.id === chatId
@@ -253,6 +281,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       setGuestErrors((errors) => ({ ...errors, [chatId]: cause instanceof Error && cause.message ? cause.message : "That message did not send. Please try again." }));
       if (chatId === guestSelectedId) setDraft((current) => current || latestUserText);
     } finally {
+      if (guestControllersRef.current.get(chatId) === controller) {
+        guestControllersRef.current.delete(chatId);
+      }
+      setGuestStreamReplies((replies) => {
+        const next = { ...replies };
+        delete next[chatId];
+        return next;
+      });
       setGuestSendingIds((ids) => ids.filter((id) => id !== chatId));
     }
   }
@@ -276,9 +312,25 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       return;
     }
     setAccountError("");
+    const controller = new AbortController();
+    accountControllerRef.current = controller;
+    setAccountPendingTurn({ conversationId: activeAccount.id, content, reply: "" });
     try {
-      const response = await sendTurn.mutateAsync({ conversationId: activeAccount.id, data: { content } });
-      queryClient.setQueryData(getListConversationMessagesQueryKey(activeAccount.id), response);
+      const response = await requestChatStream(
+        `/api/conversations/${activeAccount.id}/chat`,
+        { content },
+        (delta) => setAccountPendingTurn((turn) =>
+          turn?.conversationId === activeAccount.id
+            ? { ...turn, reply: turn.reply + delta }
+            : turn),
+        controller.signal,
+      );
+      if (!Array.isArray(response.items) || response.items.length < 2) {
+        throw new Error("The completed reply could not be loaded. Please try again.");
+      }
+      queryClient.setQueryData(getListConversationMessagesQueryKey(activeAccount.id), {
+        items: response.items as Message[],
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: getListConversationMessagesQueryKey(activeAccount.id) }),
         queryClient.invalidateQueries({ queryKey: getListConversationsQueryKey() }),
@@ -286,6 +338,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       setDraft("");
     } catch (cause) {
       setAccountError(cause instanceof Error && cause.message ? cause.message : "Your message could not be sent. Your draft is still here.");
+      void queryClient.invalidateQueries({
+        queryKey: getListConversationMessagesQueryKey(activeAccount.id),
+      });
+    } finally {
+      if (accountControllerRef.current === controller) {
+        accountControllerRef.current = null;
+      }
+      setAccountPendingTurn(null);
     }
   }
 
@@ -424,7 +484,34 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               {messages.map((message, index) => (
                 <MessageView key={"id" in message ? message.id : `${selectedId}-${index}`} message={message} index={index} />
               ))}
-              {isSending && <div className="assistant-loading" role="status"><span className="assistant-mark"><Sparkles size={14} /></span><div className="thinking-indicator"><i /><i /><i /><span>Thinking</span></div></div>}
+              {isGuest && guestSendingIds.includes(guestSelectedId) && guestStreamReplies[guestSelectedId] && (
+                <MessageView
+                  key={`${guestSelectedId}-streaming`}
+                  message={{ role: "assistant", content: guestStreamReplies[guestSelectedId] }}
+                  index={messages.length}
+                />
+              )}
+              {!isGuest && accountPendingTurn?.conversationId === activeAccountId && (
+                <>
+                  <MessageView
+                    key={`${activeAccountId}-pending-user`}
+                    message={{ role: "user", content: accountPendingTurn.content }}
+                    index={messages.length}
+                  />
+                  {accountPendingTurn.reply ? (
+                    <MessageView
+                      key={`${activeAccountId}-streaming`}
+                      message={{ role: "assistant", content: accountPendingTurn.reply }}
+                      index={messages.length + 1}
+                    />
+                  ) : (
+                    <div className="assistant-loading" role="status"><span className="assistant-mark"><Sparkles size={14} /></span><div className="thinking-indicator"><i /><i /><i /><span>Thinking</span></div></div>
+                  )}
+                </>
+              )}
+              {isGuest && isSending && !guestStreamReplies[guestSelectedId] && (
+                <div className="assistant-loading" role="status"><span className="assistant-mark"><Sparkles size={14} /></span><div className="thinking-indicator"><i /><i /><i /><span>Thinking</span></div></div>
+              )}
               <div ref={endRef} />
             </div>
           )}

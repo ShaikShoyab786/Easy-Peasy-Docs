@@ -16,8 +16,10 @@ import { removeStoredObject } from "../lib/storedDocuments";
 import {
   generateGrokChatReply,
   GrokChatError,
+  streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
+import { wantsChatStream, writeChatStreamEvent } from "../lib/chatStream";
 import {
   getAuthenticatedUserId,
   requireAuth,
@@ -315,33 +317,92 @@ router.post(
       .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
       .limit(MAX_CHAT_HISTORY_MESSAGES);
 
+    const history = [
+      ...selectChatHistory(previousMessages),
+      { role: "user" as const, content },
+    ];
+    const streamRequested = wantsChatStream(req.get("accept"));
     let assistantReply: string;
-    try {
-      assistantReply = await generateGrokChatReply(apiKey, [
-        ...selectChatHistory(previousMessages),
-        { role: "user", content },
-      ]);
-    } catch (error) {
-      if (error instanceof GrokChatError) {
-        req.log.warn(
-          { statusCode: error.statusCode, upstreamStatus: error.upstreamStatus },
-          "Grok could not complete a conversation turn",
+    let streamController: AbortController | undefined;
+    if (streamRequested) {
+      streamController = new AbortController();
+      const abortOnDisconnect = () => {
+        if (!res.writableEnded) streamController?.abort();
+      };
+      res.on("close", abortOnDisconnect);
+      try {
+        assistantReply = await streamGrokChatReply(
+          apiKey,
+          history,
+          (delta) => {
+            if (!writeChatStreamEvent(res, { type: "delta", content: delta }, 201)) {
+              streamController?.abort();
+            }
+          },
+          streamController.signal,
         );
-        res.status(error.statusCode).json({ error: error.message });
+      } catch (error) {
+        if (streamController.signal.aborted) {
+          res.off("close", abortOnDisconnect);
+          return;
+        }
+        if (error instanceof GrokChatError) {
+          req.log.warn(
+            { statusCode: error.statusCode, upstreamStatus: error.upstreamStatus },
+            "Grok could not complete a conversation turn",
+          );
+          if (res.headersSent) {
+            writeChatStreamEvent(res, { type: "error", error: error.message }, 201);
+            res.end();
+          } else {
+            res.status(error.statusCode).json({ error: error.message });
+          }
+        } else {
+          req.log.error(
+            { errorName: error instanceof Error ? error.name : "UnknownError" },
+            "Conversation model request failed",
+          );
+          const message =
+            "The assistant service is temporarily unavailable. Please try again.";
+          if (res.headersSent) {
+            writeChatStreamEvent(res, { type: "error", error: message }, 201);
+            res.end();
+          } else {
+            res.status(503).json({ error: message });
+          }
+        }
+        res.off("close", abortOnDisconnect);
         return;
       }
+      res.off("close", abortOnDisconnect);
+      if (streamController.signal.aborted) return;
+    } else {
+      try {
+        assistantReply = await generateGrokChatReply(apiKey, history);
+      } catch (error) {
+        if (error instanceof GrokChatError) {
+          req.log.warn(
+            { statusCode: error.statusCode, upstreamStatus: error.upstreamStatus },
+            "Grok could not complete a conversation turn",
+          );
+          res.status(error.statusCode).json({ error: error.message });
+          return;
+        }
 
-      req.log.error(
-        { errorName: error instanceof Error ? error.name : "UnknownError" },
-        "Conversation model request failed",
-      );
-      res.status(503).json({
-        error: "The assistant service is temporarily unavailable. Please try again.",
-      });
-      return;
+        req.log.error(
+          { errorName: error instanceof Error ? error.name : "UnknownError" },
+          "Conversation model request failed",
+        );
+        res.status(503).json({
+          error: "The assistant service is temporarily unavailable. Please try again.",
+        });
+        return;
+      }
     }
 
-    const storedTurn = await db.transaction(async (tx) => {
+    let storedTurn: { items: typeof messagesTable.$inferSelect[] } | null;
+    try {
+      storedTurn = await db.transaction(async (tx) => {
       const [currentConversation] = await tx
         .select({
           id: conversationsTable.id,
@@ -390,16 +451,44 @@ router.post(
         .where(eq(conversationsTable.id, conversation.id));
 
       return { items: [userMessage, assistantMessage] };
-    });
-
-    if (!storedTurn) {
-      res.status(404).json({ error: "Conversation not found." });
+      });
+    } catch (error) {
+      req.log.error(
+        { errorName: error instanceof Error ? error.name : "UnknownError" },
+        "Conversation turn could not be saved",
+      );
+      const message = "Your reply could not be saved. Please try again.";
+      if (streamRequested && res.headersSent) {
+        writeChatStreamEvent(res, { type: "error", error: message }, 201);
+        res.end();
+      } else {
+        res.status(503).json({ error: message });
+      }
       return;
     }
 
-    res
-      .status(201)
-      .json(SendConversationChatTurnResponse.parse(storedTurn));
+    if (!storedTurn) {
+      const message = "Conversation not found.";
+      if (streamRequested && res.headersSent) {
+        writeChatStreamEvent(res, { type: "error", error: message }, 201);
+        res.end();
+      } else {
+        res.status(404).json({ error: message });
+      }
+      return;
+    }
+
+    if (streamRequested) {
+      writeChatStreamEvent(res, {
+        type: "done",
+        content: assistantReply,
+        items: SendConversationChatTurnResponse.parse(storedTurn).items,
+      }, 201);
+      res.end();
+      return;
+    }
+
+    res.status(201).json(SendConversationChatTurnResponse.parse(storedTurn));
   },
 );
 

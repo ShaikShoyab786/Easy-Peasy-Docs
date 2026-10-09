@@ -6,8 +6,10 @@ import {
 import {
   generateGrokChatReply,
   GrokChatError,
+  streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
+import { wantsChatStream, writeChatStreamEvent } from "../lib/chatStream";
 
 const router: IRouter = Router();
 
@@ -124,6 +126,60 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
     res.status(503).json({
       error: "The assistant service is temporarily unavailable. Please try again.",
     });
+    return;
+  }
+
+  if (wantsChatStream(req.get("accept"))) {
+    const controller = new AbortController();
+    const abortOnDisconnect = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.on("close", abortOnDisconnect);
+    try {
+      const content = await streamGrokChatReply(
+        apiKey,
+        selectRecentHistory(history),
+        (delta) => {
+          if (!writeChatStreamEvent(res, { type: "delta", content: delta })) {
+            controller.abort();
+          }
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      writeChatStreamEvent(res, { type: "done", content });
+      res.end();
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (error instanceof GrokChatError) {
+        req.log.warn(
+          { statusCode: error.statusCode, upstreamStatus: error.upstreamStatus },
+          "Grok could not complete an anonymous chat turn",
+        );
+        if (res.headersSent) {
+          writeChatStreamEvent(res, { type: "error", error: error.message });
+          res.end();
+        } else {
+          res.status(error.statusCode).json({ error: error.message });
+        }
+        return;
+      }
+
+      req.log.error(
+        { errorName: error instanceof Error ? error.name : "UnknownError" },
+        "Anonymous conversation model request failed",
+      );
+      const message =
+        "The assistant service is temporarily unavailable. Please try again.";
+      if (res.headersSent) {
+        writeChatStreamEvent(res, { type: "error", error: message });
+        res.end();
+      } else {
+        res.status(503).json({ error: message });
+      }
+    } finally {
+      res.off("close", abortOnDisconnect);
+    }
     return;
   }
 

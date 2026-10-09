@@ -33,7 +33,7 @@ paths:
       operationId: sendGuestChatTurn
       tags: [guest-chat]
       summary: Send a turn in an anonymous chat
-      description: Generates a reply from the provided conversation history without storing it on the server.
+      description: "Generates a reply from the provided conversation history without storing it on the server. Send requests with Accept: text/event-stream for incremental events; JSON is the default."
       requestBody:
         required: true
         content:
@@ -47,6 +47,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GuestChatResponse"
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/ChatStreamEvent"
         "400":
           description: Invalid chat history
           content:
@@ -300,6 +303,7 @@ paths:
       operationId: sendConversationChatTurn
       tags: [conversations]
       summary: Send a message and receive a saved assistant reply
+      description: "Send requests with Accept: text/event-stream for incremental events; JSON is the default."
       security:
         - ClerkSessionCookie: []
       requestBody:
@@ -310,11 +314,14 @@ paths:
               $ref: "#/components/schemas/ChatMessageInput"
       responses:
         "201":
-          description: User and assistant messages saved in creation order
+          description: User and assistant messages saved in creation order, returned as JSON or incremental events.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageList"
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/ChatStreamEvent"
         "400":
           description: Invalid chat message
           content:
@@ -467,6 +474,43 @@ components:
         content:
           type: string
       required: [content]
+    ChatStreamEvent:
+      description: A JSON event sent as a data field in a server-sent event stream.
+      oneOf:
+        - $ref: "#/components/schemas/ChatStreamDelta"
+        - $ref: "#/components/schemas/ChatStreamDone"
+        - $ref: "#/components/schemas/ChatStreamError"
+    ChatStreamDelta:
+      type: object
+      properties:
+        type:
+          type: string
+          const: delta
+        content:
+          type: string
+      required: [type, content]
+    ChatStreamDone:
+      type: object
+      properties:
+        type:
+          type: string
+          const: done
+        content:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+      required: [type, content]
+    ChatStreamError:
+      type: object
+      properties:
+        type:
+          type: string
+          const: error
+        error:
+          type: string
+      required: [type, error]
     HealthStatus:
       type: object
       properties:

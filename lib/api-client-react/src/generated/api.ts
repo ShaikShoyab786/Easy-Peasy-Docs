@@ -23,6 +23,7 @@ import type {
   AccountIdentity,
   ApiError,
   ChatMessageInput,
+  ChatStreamEvent,
   Conversation,
   ConversationCreatePayload,
   ConversationList,
@@ -149,10 +150,10 @@ export const getSendGuestChatTurnUrl = () => {
 }
 
 /**
- * Generates a reply from the provided conversation history without storing it on the server.
+ * Generates a reply from the provided conversation history without storing it on the server. Send requests with Accept: text/event-stream for incremental events; JSON is the default.
  * @summary Send a turn in an anonymous chat
  */
-export const sendGuestChatTurn = async (guestChatInput: GuestChatInput, options?: Parameters<typeof customFetch>[1]): Promise<GuestChatResponse> => {
+export const sendGuestChatTurn = async (guestChatInput: GuestChatInput, options?: Parameters<typeof customFetch>[1]): Promise<GuestChatResponse | ChatStreamEvent> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -168,7 +169,7 @@ export const sendGuestChatTurn = async (guestChatInput: GuestChatInput, options?
     }
     return headers;
   };
-return customFetch<GuestChatResponse>(getSendGuestChatTurnUrl(),
+return customFetch<GuestChatResponse | ChatStreamEvent>(getSendGuestChatTurnUrl(),
   {
     ...options,
     method: 'POST',
@@ -809,10 +810,11 @@ export const getSendConversationChatTurnUrl = (conversationId: string,) => {
 }
 
 /**
+ * Send requests with Accept: text/event-stream for incremental events; JSON is the default.
  * @summary Send a message and receive a saved assistant reply
  */
 export const sendConversationChatTurn = async (conversationId: string,
-    chatMessageInput: ChatMessageInput, options?: Parameters<typeof customFetch>[1]): Promise<MessageList> => {
+    chatMessageInput: ChatMessageInput, options?: Parameters<typeof customFetch>[1]): Promise<MessageList | ChatStreamEvent> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -828,7 +830,7 @@ export const sendConversationChatTurn = async (conversationId: string,
     }
     return headers;
   };
-return customFetch<MessageList>(getSendConversationChatTurnUrl(conversationId),
+return customFetch<MessageList | ChatStreamEvent>(getSendConversationChatTurnUrl(conversationId),
   {
     ...options,
     method: 'POST',
