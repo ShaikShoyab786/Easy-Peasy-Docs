@@ -35,6 +35,11 @@ import type {
   GuestChatResponse,
   GuestConversationImportInput,
   HealthStatus,
+  KnowledgeDocument,
+  KnowledgeDocumentList,
+  KnowledgeDocumentPinInput,
+  KnowledgeDocumentUploadRequest,
+  KnowledgeDocumentUploadSession,
   Message,
   MessageList
 } from './api.schemas';
@@ -953,4 +958,483 @@ export const useSendConversationChatTurn = <TError = ErrorType<ApiError>,
       > => {
       return useMutation(getSendConversationChatTurnMutationOptions(options));
     }
+
+export const getListKnowledgeDocumentsUrl = () => {
+
+
+
+
+  return `/api/knowledge-documents`
+}
+
+/**
+ * @summary List the signed-in user's Knowledge Hub documents
+ */
+export const listKnowledgeDocuments = async ( options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocumentList> => {
+
+  return customFetch<KnowledgeDocumentList>(getListKnowledgeDocumentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListKnowledgeDocumentsQueryKey = () => {
+    return [
+    `/api/knowledge-documents`
+    ] as const;
+    }
+
+
+export const getListKnowledgeDocumentsQueryOptions = <TData = Awaited<ReturnType<typeof listKnowledgeDocuments>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listKnowledgeDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListKnowledgeDocumentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listKnowledgeDocuments>>> = ({ signal }) => listKnowledgeDocuments({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listKnowledgeDocuments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListKnowledgeDocumentsQueryResult = NonNullable<Awaited<ReturnType<typeof listKnowledgeDocuments>>>
+export type ListKnowledgeDocumentsQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List the signed-in user's Knowledge Hub documents
+ */
+
+export function useListKnowledgeDocuments<TData = Awaited<ReturnType<typeof listKnowledgeDocuments>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listKnowledgeDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListKnowledgeDocumentsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRequestKnowledgeDocumentUploadUrlUrl = () => {
+
+
+
+
+  return `/api/knowledge-documents/uploads/request-url`
+}
+
+/**
+ * @summary Create a pending Knowledge Hub document and request its upload URL
+ */
+export const requestKnowledgeDocumentUploadUrl = async (knowledgeDocumentUploadRequest: KnowledgeDocumentUploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocumentUploadSession> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<KnowledgeDocumentUploadSession>(getRequestKnowledgeDocumentUploadUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(knowledgeDocumentUploadRequest)
+  }
+);}
+
+
+
+
+
+export const getRequestKnowledgeDocumentUploadUrlMutationKey = () => ['requestKnowledgeDocumentUploadUrl'] as const;
+
+export const getRequestKnowledgeDocumentUploadUrlMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestKnowledgeDocumentUploadUrl>>, TError,RequestKnowledgeDocumentUploadUrlMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestKnowledgeDocumentUploadUrl>>, TError,RequestKnowledgeDocumentUploadUrlMutationVariables, TContext> => {
+
+const mutationKey = getRequestKnowledgeDocumentUploadUrlMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestKnowledgeDocumentUploadUrl>>, RequestKnowledgeDocumentUploadUrlMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestKnowledgeDocumentUploadUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestKnowledgeDocumentUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof requestKnowledgeDocumentUploadUrl>>>
+    export type RequestKnowledgeDocumentUploadUrlMutationBody = BodyType<KnowledgeDocumentUploadRequest>
+    export type RequestKnowledgeDocumentUploadUrlMutationError = ErrorType<ApiError>
+    export type RequestKnowledgeDocumentUploadUrlMutationVariables = {data: BodyType<KnowledgeDocumentUploadRequest>}
+
+    /**
+ * @summary Create a pending Knowledge Hub document and request its upload URL
+ */
+export const useRequestKnowledgeDocumentUploadUrl = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestKnowledgeDocumentUploadUrl>>, TError,RequestKnowledgeDocumentUploadUrlMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestKnowledgeDocumentUploadUrl>>,
+        TError,
+        RequestKnowledgeDocumentUploadUrlMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRequestKnowledgeDocumentUploadUrlMutationOptions(options));
+    }
+
+export const getCompleteKnowledgeDocumentUploadUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge-documents/${documentId}/complete`
+}
+
+/**
+ * @summary Verify the uploaded object and make its Knowledge Hub document ready
+ */
+export const completeKnowledgeDocumentUpload = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocument> => {
+
+  return customFetch<KnowledgeDocument>(getCompleteKnowledgeDocumentUploadUrl(documentId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompleteKnowledgeDocumentUploadMutationKey = () => ['completeKnowledgeDocumentUpload'] as const;
+
+export const getCompleteKnowledgeDocumentUploadMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeKnowledgeDocumentUpload>>, TError,CompleteKnowledgeDocumentUploadMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeKnowledgeDocumentUpload>>, TError,CompleteKnowledgeDocumentUploadMutationVariables, TContext> => {
+
+const mutationKey = getCompleteKnowledgeDocumentUploadMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeKnowledgeDocumentUpload>>, CompleteKnowledgeDocumentUploadMutationVariables> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  completeKnowledgeDocumentUpload(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteKnowledgeDocumentUploadMutationResult = NonNullable<Awaited<ReturnType<typeof completeKnowledgeDocumentUpload>>>
+
+    export type CompleteKnowledgeDocumentUploadMutationError = ErrorType<ApiError>
+    export type CompleteKnowledgeDocumentUploadMutationVariables = {documentId: string}
+
+    /**
+ * @summary Verify the uploaded object and make its Knowledge Hub document ready
+ */
+export const useCompleteKnowledgeDocumentUpload = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeKnowledgeDocumentUpload>>, TError,CompleteKnowledgeDocumentUploadMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeKnowledgeDocumentUpload>>,
+        TError,
+        CompleteKnowledgeDocumentUploadMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCompleteKnowledgeDocumentUploadMutationOptions(options));
+    }
+
+export const getSetKnowledgeDocumentPinnedUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge-documents/${documentId}/pin`
+}
+
+/**
+ * @summary Pin or unpin a Knowledge Hub document
+ */
+export const setKnowledgeDocumentPinned = async (documentId: string,
+    knowledgeDocumentPinInput: KnowledgeDocumentPinInput, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocument> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<KnowledgeDocument>(getSetKnowledgeDocumentPinnedUrl(documentId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(knowledgeDocumentPinInput)
+  }
+);}
+
+
+
+
+
+export const getSetKnowledgeDocumentPinnedMutationKey = () => ['setKnowledgeDocumentPinned'] as const;
+
+export const getSetKnowledgeDocumentPinnedMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setKnowledgeDocumentPinned>>, TError,SetKnowledgeDocumentPinnedMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setKnowledgeDocumentPinned>>, TError,SetKnowledgeDocumentPinnedMutationVariables, TContext> => {
+
+const mutationKey = getSetKnowledgeDocumentPinnedMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setKnowledgeDocumentPinned>>, SetKnowledgeDocumentPinnedMutationVariables> = (props) => {
+          const {documentId,data} = props ?? {};
+
+          return  setKnowledgeDocumentPinned(documentId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetKnowledgeDocumentPinnedMutationResult = NonNullable<Awaited<ReturnType<typeof setKnowledgeDocumentPinned>>>
+    export type SetKnowledgeDocumentPinnedMutationBody = BodyType<KnowledgeDocumentPinInput>
+    export type SetKnowledgeDocumentPinnedMutationError = ErrorType<ApiError>
+    export type SetKnowledgeDocumentPinnedMutationVariables = {documentId: string;data: BodyType<KnowledgeDocumentPinInput>}
+
+    /**
+ * @summary Pin or unpin a Knowledge Hub document
+ */
+export const useSetKnowledgeDocumentPinned = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setKnowledgeDocumentPinned>>, TError,SetKnowledgeDocumentPinnedMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setKnowledgeDocumentPinned>>,
+        TError,
+        SetKnowledgeDocumentPinnedMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSetKnowledgeDocumentPinnedMutationOptions(options));
+    }
+
+export const getDeleteKnowledgeDocumentUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge-documents/${documentId}`
+}
+
+/**
+ * @summary Delete a Knowledge Hub document and its stored file
+ */
+export const deleteKnowledgeDocument = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteKnowledgeDocumentUrl(documentId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteKnowledgeDocumentMutationKey = () => ['deleteKnowledgeDocument'] as const;
+
+export const getDeleteKnowledgeDocumentMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteKnowledgeDocument>>, TError,DeleteKnowledgeDocumentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteKnowledgeDocument>>, TError,DeleteKnowledgeDocumentMutationVariables, TContext> => {
+
+const mutationKey = getDeleteKnowledgeDocumentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteKnowledgeDocument>>, DeleteKnowledgeDocumentMutationVariables> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  deleteKnowledgeDocument(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteKnowledgeDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof deleteKnowledgeDocument>>>
+
+    export type DeleteKnowledgeDocumentMutationError = ErrorType<ApiError>
+    export type DeleteKnowledgeDocumentMutationVariables = {documentId: string}
+
+    /**
+ * @summary Delete a Knowledge Hub document and its stored file
+ */
+export const useDeleteKnowledgeDocument = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteKnowledgeDocument>>, TError,DeleteKnowledgeDocumentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteKnowledgeDocument>>,
+        TError,
+        DeleteKnowledgeDocumentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteKnowledgeDocumentMutationOptions(options));
+    }
+
+export const getGetKnowledgeDocumentContentUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge-documents/${documentId}/content`
+}
+
+/**
+ * @summary Download a user-owned Knowledge Hub document for chat attachment
+ */
+export const getKnowledgeDocumentContent = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetKnowledgeDocumentContentUrl(documentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetKnowledgeDocumentContentQueryKey = (documentId: string,) => {
+    return [
+    `/api/knowledge-documents/${documentId}/content`
+    ] as const;
+    }
+
+
+export const getGetKnowledgeDocumentContentQueryOptions = <TData = Awaited<ReturnType<typeof getKnowledgeDocumentContent>>, TError = ErrorType<ApiError>>(documentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getKnowledgeDocumentContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetKnowledgeDocumentContentQueryKey(documentId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getKnowledgeDocumentContent>>> = ({ signal }) => getKnowledgeDocumentContent(documentId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: documentId !== null && documentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getKnowledgeDocumentContent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetKnowledgeDocumentContentQueryResult = NonNullable<Awaited<ReturnType<typeof getKnowledgeDocumentContent>>>
+export type GetKnowledgeDocumentContentQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Download a user-owned Knowledge Hub document for chat attachment
+ */
+
+export function useGetKnowledgeDocumentContent<TData = Awaited<ReturnType<typeof getKnowledgeDocumentContent>>, TError = ErrorType<ApiError>>(
+ documentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getKnowledgeDocumentContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetKnowledgeDocumentContentQueryOptions(documentId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 

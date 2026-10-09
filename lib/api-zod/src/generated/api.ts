@@ -210,3 +210,107 @@ export const SendConversationChatTurnResponse = zod.object({
 })
 
 
+/**
+ * @summary List the signed-in user's Knowledge Hub documents
+ */
+export const ListKnowledgeDocumentsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "byteSize": zod.number().int(),
+  "isPinned": zod.boolean(),
+  "status": zod.enum(['pending_upload', 'ready']),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Create a pending Knowledge Hub document and request its upload URL
+ */
+export const requestKnowledgeDocumentUploadUrlBodyFileNameMax = 255;
+
+export const requestKnowledgeDocumentUploadUrlBodyByteSizeMax = 10485760;
+
+
+
+export const RequestKnowledgeDocumentUploadUrlBody = zod.object({
+  "fileName": zod.string().min(1).max(requestKnowledgeDocumentUploadUrlBodyFileNameMax),
+  "byteSize": zod.number().int().min(1).max(requestKnowledgeDocumentUploadUrlBodyByteSizeMax)
+})
+
+export const RequestKnowledgeDocumentUploadUrlResponse = zod.object({
+  "document": zod.object({
+  "id": zod.string().uuid(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "byteSize": zod.number().int(),
+  "isPinned": zod.boolean(),
+  "status": zod.enum(['pending_upload', 'ready']),
+  "createdAt": zod.coerce.date()
+}),
+  "uploadUrl": zod.string().url()
+})
+
+
+/**
+ * @summary Verify the uploaded object and make its Knowledge Hub document ready
+ */
+export const CompleteKnowledgeDocumentUploadParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const CompleteKnowledgeDocumentUploadResponse = zod.object({
+  "id": zod.string().uuid(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "byteSize": zod.number().int(),
+  "isPinned": zod.boolean(),
+  "status": zod.enum(['pending_upload', 'ready']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Pin or unpin a Knowledge Hub document
+ */
+export const SetKnowledgeDocumentPinnedParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const SetKnowledgeDocumentPinnedBody = zod.object({
+  "isPinned": zod.boolean()
+})
+
+export const SetKnowledgeDocumentPinnedResponse = zod.object({
+  "id": zod.string().uuid(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "byteSize": zod.number().int(),
+  "isPinned": zod.boolean(),
+  "status": zod.enum(['pending_upload', 'ready']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a Knowledge Hub document and its stored file
+ */
+export const DeleteKnowledgeDocumentParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const DeleteKnowledgeDocumentResponse = zod.void()
+
+
+/**
+ * @summary Download a user-owned Knowledge Hub document for chat attachment
+ */
+export const GetKnowledgeDocumentContentParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const GetKnowledgeDocumentContentResponse = zod.unknown()
+
+

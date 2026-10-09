@@ -14,6 +14,8 @@ tags:
     description: Signed-in account identity
   - name: conversations
     description: Account-owned conversation and message persistence
+  - name: knowledge-documents
+    description: Account-owned Knowledge Hub documents
 paths:
   /healthz:
     get:
@@ -396,6 +398,211 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /knowledge-documents:
+    get:
+      operationId: listKnowledgeDocuments
+      tags: [knowledge-documents]
+      summary: List the signed-in user's Knowledge Hub documents
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: User-owned Knowledge Hub documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentList"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /knowledge-documents/uploads/request-url:
+    post:
+      operationId: requestKnowledgeDocumentUploadUrl
+      tags: [knowledge-documents]
+      summary: Create a pending Knowledge Hub document and request its upload URL
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeDocumentUploadRequest"
+      responses:
+        "201":
+          description: Pending document and signed upload URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentUploadSession"
+        "400":
+          description: Invalid file metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /knowledge-documents/{documentId}/complete:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: completeKnowledgeDocumentUpload
+      tags: [knowledge-documents]
+      summary: Verify the uploaded object and make its Knowledge Hub document ready
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: Ready document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Document or uploaded file not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Uploaded file did not match its reserved metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /knowledge-documents/{documentId}/pin:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: setKnowledgeDocumentPinned
+      tags: [knowledge-documents]
+      summary: Pin or unpin a Knowledge Hub document
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeDocumentPinInput"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "400":
+          description: Invalid pin state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /knowledge-documents/{documentId}:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: deleteKnowledgeDocument
+      tags: [knowledge-documents]
+      summary: Delete a Knowledge Hub document and its stored file
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "204":
+          description: Document and stored file deleted
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Stored file could not be removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /knowledge-documents/{documentId}/content:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getKnowledgeDocumentContent
+      tags: [knowledge-documents]
+      summary: Download a user-owned Knowledge Hub document for chat attachment
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: Document bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   securitySchemes:
     ClerkSessionCookie:
@@ -473,6 +680,66 @@ components:
           items:
             $ref: "#/components/schemas/Message"
       required: [items]
+    KnowledgeDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+        contentType:
+          type: string
+        byteSize:
+          type: integer
+          format: int32
+        isPinned:
+          type: boolean
+        status:
+          type: string
+          enum: [pending_upload, ready]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, fileName, contentType, byteSize, isPinned, status, createdAt]
+    KnowledgeDocumentList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeDocument"
+      required: [items]
+    KnowledgeDocumentUploadRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        byteSize:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 10485760
+      required: [fileName, byteSize]
+    KnowledgeDocumentUploadSession:
+      type: object
+      properties:
+        document:
+          $ref: "#/components/schemas/KnowledgeDocument"
+        uploadUrl:
+          type: string
+          format: uri
+      required: [document, uploadUrl]
+    KnowledgeDocumentPinInput:
+      type: object
+      additionalProperties: false
+      properties:
+        isPinned:
+          type: boolean
+      required: [isPinned]
     CreateMessageBody:
       type: object
       properties:

@@ -56,6 +56,50 @@ export interface MessageList {
   items: Message[];
 }
 
+export type KnowledgeDocumentStatus = typeof KnowledgeDocumentStatus[keyof typeof KnowledgeDocumentStatus];
+
+
+export const KnowledgeDocumentStatus = {
+  pending_upload: 'pending_upload',
+  ready: 'ready',
+} as const;
+
+export interface KnowledgeDocument {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  isPinned: boolean;
+  status: KnowledgeDocumentStatus;
+  createdAt: string;
+}
+
+export interface KnowledgeDocumentList {
+  items: KnowledgeDocument[];
+}
+
+export interface KnowledgeDocumentUploadRequest {
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  fileName: string;
+  /**
+     * @minimum 1
+     * @maximum 10485760
+     */
+  byteSize: number;
+}
+
+export interface KnowledgeDocumentUploadSession {
+  document: KnowledgeDocument;
+  uploadUrl: string;
+}
+
+export interface KnowledgeDocumentPinInput {
+  isPinned: boolean;
+}
+
 export interface CreateMessageBody {
   /**
      * @minLength 1
