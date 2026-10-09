@@ -19,6 +19,16 @@ export type AssistantHistoryMessage = {
   content: string;
 };
 
+export type GrokChatAttachment = {
+  buffer: Uint8Array;
+  filename: string;
+  mimeType: string;
+};
+
+export type GrokInputAttachment =
+  | { type: "input_file"; file_id: string }
+  | { type: "input_image"; image_url: string };
+
 export class GrokChatError extends Error {
   constructor(
     message: string,
@@ -28,6 +38,134 @@ export class GrokChatError extends Error {
     super(message);
     this.name = "GrokChatError";
   }
+}
+
+export async function prepareGrokAttachments(
+  apiKey: string,
+  attachments: GrokChatAttachment[],
+  signal?: AbortSignal,
+): Promise<{ parts: GrokInputAttachment[]; uploadedFileIds: string[] }> {
+  const parts: GrokInputAttachment[] = [];
+  const uploadedFileIds: string[] = [];
+
+  try {
+    for (const attachment of attachments) {
+      if (attachment.mimeType.startsWith("image/")) {
+        parts.push({
+          type: "input_image",
+          image_url: `data:${attachment.mimeType};base64,${Buffer.from(attachment.buffer).toString("base64")}`,
+        });
+        continue;
+      }
+
+      const form = new FormData();
+      // xAI requires expires_after to precede the file field in multipart uploads.
+      form.append("expires_after", "3600");
+      form.append("purpose", "assistants");
+      form.append(
+        "file",
+        new Blob([new Uint8Array(attachment.buffer)], { type: attachment.mimeType }),
+        attachment.filename,
+      );
+
+      let response: Response;
+      try {
+        response = await fetch(`${XAI_API_BASE}/files`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+          signal: signal
+            ? AbortSignal.any([signal, AbortSignal.timeout(60_000)])
+            : AbortSignal.timeout(60_000),
+        });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const timedOut =
+          error instanceof Error &&
+          (error.name === "TimeoutError" || error.name === "AbortError");
+        throw new GrokChatError(
+          timedOut
+            ? "An attachment took too long to upload. Please try again."
+            : "The assistant could not upload an attachment. Please try again.",
+          503,
+        );
+      }
+
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new GrokChatError(
+          response.status === 429
+            ? "The assistant is busy right now. Please try again shortly."
+            : "The assistant could not process an attachment. Please try again.",
+          response.status >= 500 || response.status === 429 ? 503 : 502,
+          response.status,
+        );
+      }
+
+      const fileId =
+        isRecord(payload) && typeof payload.id === "string" ? payload.id : null;
+      if (!fileId) {
+        throw new GrokChatError(
+          "The assistant returned an invalid attachment reference. Please try again.",
+          502,
+        );
+      }
+      uploadedFileIds.push(fileId);
+      parts.push({ type: "input_file", file_id: fileId });
+    }
+  } catch (error) {
+    await deleteGrokAttachments(apiKey, uploadedFileIds);
+    throw error;
+  }
+
+  return { parts, uploadedFileIds };
+}
+
+export async function deleteGrokAttachments(
+  apiKey: string,
+  fileIds: string[],
+): Promise<number> {
+  const results = await Promise.allSettled(
+    fileIds.map((fileId) =>
+      fetch(`${XAI_API_BASE}/files/${encodeURIComponent(fileId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(10_000),
+      }),
+    ),
+  );
+
+  return results.filter(
+    (result) => result.status === "rejected" || !result.value.ok,
+  ).length;
+}
+
+function modelInput(
+  history: AssistantHistoryMessage[],
+  attachments: GrokInputAttachment[],
+): Array<{
+  role: AssistantHistoryMessage["role"];
+  content: string | Array<{ type: string; text?: string; file_id?: string; image_url?: string }>;
+}> {
+  let latestUserIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index].role === "user") {
+      latestUserIndex = index;
+      break;
+    }
+  }
+
+  return history.map((message, index) =>
+    attachments.length > 0 && index === latestUserIndex
+      ? {
+          role: message.role,
+          content: [
+            { type: "input_text", text: message.content },
+            ...attachments,
+          ],
+        }
+      : message,
+  );
 }
 
 export function extractXaiErrorMessage(payload: unknown): string | undefined {
@@ -150,6 +288,7 @@ export async function discoverGrokModel(
 export async function generateGrokChatReply(
   apiKey: string,
   history: AssistantHistoryMessage[],
+  attachments: GrokInputAttachment[] = [],
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -184,7 +323,7 @@ export async function generateGrokChatReply(
       },
       body: JSON.stringify({
         model: discovery.model,
-        input: history.map(({ role, content }) => ({ role, content })),
+        input: modelInput(history, attachments),
         store: false,
       }),
       signal: AbortSignal.timeout(60_000),
@@ -234,6 +373,7 @@ export async function streamGrokChatReply(
   history: AssistantHistoryMessage[],
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
+  attachments: GrokInputAttachment[] = [],
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -269,7 +409,7 @@ export async function streamGrokChatReply(
       },
       body: JSON.stringify({
         model: discovery.model,
-        input: history.map(({ role, content }) => ({ role, content })),
+        input: modelInput(history, attachments),
         store: false,
         stream: true,
       }),
