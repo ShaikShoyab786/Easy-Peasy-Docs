@@ -15,15 +15,17 @@ export async function requestChatStream(
   signal: AbortSignal,
 ): Promise<ChatStreamCompletion> {
   let response: Response;
+  const isMultipart = typeof FormData !== "undefined" && body instanceof FormData;
+  const headers: Record<string, string> = {
+    Accept: "text/event-stream",
+  };
+  if (!isMultipart) headers["Content-Type"] = "application/json";
   try {
     response = await fetch(url, {
       method: "POST",
       credentials: "same-origin",
-      headers: {
-        Accept: "text/event-stream",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: isMultipart ? body : JSON.stringify(body),
       signal,
     });
   } catch (error) {

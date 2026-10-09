@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bundlePath = path.join(testDir, ".cache", "conversations.route.mjs");
+const guestBundlePath = path.join(testDir, ".cache", "guest-chat.route.mjs");
 const chatStreamBundlePath = path.join(testDir, ".cache", "chatStream.mjs");
 const draftId = "d8f6f3a4-390f-4c25-a529-25dc45772f0f";
 const ownerId = "route-test-user";
@@ -64,6 +65,15 @@ const mockModules = new Map([
         content: z.string().min(1).max(6000),
         createIfMissing: z.boolean().optional(),
       });
+      export const SendGuestChatTurnBody = z.object({
+        messages: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string().min(1).max(6000),
+        })).min(1).max(32),
+      });
+      export const SendGuestChatTurnResponse = z.object({
+        content: z.string(),
+      });
       export const SendConversationChatTurnResponse = z.object({
         items: z.array(z.any()),
       });
@@ -82,8 +92,24 @@ const mockModules = new Map([
           this.upstreamStatus = upstreamStatus;
         }
       }
-      export async function generateGrokChatReply() {
+      export async function prepareGrokAttachments(_apiKey, attachments) {
         const model = globalThis.__conversationRouteHarness.model;
+        model.receivedUploads = attachments;
+        return {
+          parts: attachments.map(({ filename }) => ({
+            type: "input_file",
+            file_id: filename,
+          })),
+          uploadedFileIds: [],
+        };
+      }
+      export async function deleteGrokAttachments() {
+        return 0;
+      }
+      export async function generateGrokChatReply(_apiKey, _history, attachments = []) {
+        const model = globalThis.__conversationRouteHarness.model;
+        model.receivedParts = attachments;
+        model.receivedHistory = _history;
         if (model.failure) {
           throw new GrokChatError(
             model.failure.message,
@@ -410,6 +436,15 @@ before(async () => {
     plugins: [mockPlugin()],
   });
   await build({
+    entryPoints: [path.join(testDir, "../src/routes/guest-chat.ts")],
+    outfile: guestBundlePath,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+    plugins: [mockPlugin()],
+  });
+  await build({
     entryPoints: [path.join(testDir, "../src/lib/chatStream.ts")],
     outfile: chatStreamBundlePath,
     bundle: true,
@@ -428,6 +463,7 @@ before(async () => {
   globalThis.__conversationRouteHarness = harness;
   delete process.env.XAI_API_KEY;
   ({ default: route } = await import(pathToFileURL(bundlePath).href));
+  const { default: guestRoute } = await import(pathToFileURL(guestBundlePath).href);
 
   const app = express();
   app.use(express.json());
@@ -436,6 +472,7 @@ before(async () => {
     next();
   });
   app.use("/api", route);
+  app.use("/api", guestRoute);
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve, reject) => {
     server.once("listening", resolve);
@@ -465,6 +502,39 @@ async function sendFirstTurn(id = draftId) {
   });
 }
 
+async function sendFirstTurnWithAttachments(files) {
+  const form = new FormData();
+  form.append("content", "Summarize the attached files.");
+  form.append("createIfMissing", "true");
+  for (const file of files) {
+    form.append(
+      "files",
+      new Blob([file.buffer], { type: file.mimeType }),
+      file.filename,
+    );
+  }
+  return fetch(`${baseUrl}/api/conversations/${draftId}/chat`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+async function sendGuestTurnWithAttachment(file) {
+  const form = new FormData();
+  form.append("messages", JSON.stringify([
+    { role: "user", content: "Summarize this attachment." },
+  ]));
+  form.append(
+    "files",
+    new Blob([file.buffer], { type: file.mimeType }),
+    file.filename,
+  );
+  return fetch(`${baseUrl}/api/guest-chat`, {
+    method: "POST",
+    body: form,
+  });
+}
+
 test("missing assistant configuration leaves a draft conversation uncreated", async () => {
   resetDatabase();
   delete process.env.XAI_API_KEY;
@@ -475,6 +545,86 @@ test("missing assistant configuration leaves a draft conversation uncreated", as
   assert.equal(harness.db.state.conversations.size, 0);
   assert.equal(harness.db.state.messages.length, 0);
   assert.equal(harness.db.state.transactionAttempts, 0);
+});
+
+test("multipart chat validates file signatures before calling Grok", async () => {
+  resetDatabase();
+  process.env.XAI_API_KEY = "route-test-key";
+  harness.model = { reply: "A completed assistant reply." };
+
+  const response = await sendFirstTurnWithAttachments([
+    {
+      filename: "notes.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("not actually a PDF"),
+    },
+  ]);
+
+  assert.equal(response.status, 400);
+  assert.equal(harness.model.receivedUploads, undefined);
+  assert.equal(harness.db.state.conversations.size, 0);
+  assert.equal(harness.db.state.transactionAttempts, 0);
+});
+
+test("valid multipart chat forwards file bytes to Grok and persists only the message text", async () => {
+  resetDatabase();
+  process.env.XAI_API_KEY = "route-test-key";
+  harness.model = { reply: "Here is a summary." };
+  const fileBuffer = Buffer.from("name,amount\ntea,3");
+
+  const response = await sendFirstTurnWithAttachments([
+    {
+      filename: "table.csv",
+      mimeType: "text/csv",
+      buffer: fileBuffer,
+    },
+  ]);
+
+  const result = await response.json();
+  assert.equal(response.status, 201);
+  assert.deepEqual(
+    harness.model.receivedUploads.map(({ filename, mimeType, buffer }) => ({
+      filename,
+      mimeType,
+      text: Buffer.from(buffer).toString("utf8"),
+    })),
+    [{
+      filename: "table.csv",
+      mimeType: "text/csv",
+      text: "name,amount\ntea,3",
+    }],
+  );
+  assert.deepEqual(
+    harness.db.state.messages.map(({ role, content }) => ({ role, content })),
+    [
+      { role: "user", content: "Summarize the attached files." },
+      { role: "assistant", content: "Here is a summary." },
+    ],
+  );
+  assert.equal(result.items.length, 2);
+});
+
+test("guest multipart chat parses history and forwards attachments without persistence", async () => {
+  resetDatabase();
+  process.env.XAI_API_KEY = "route-test-key";
+  harness.model = { reply: "This file contains a short note." };
+
+  const response = await sendGuestTurnWithAttachment({
+    filename: "note.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("A note for the guest."),
+  });
+
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(result.content, "This file contains a short note.");
+  assert.deepEqual(
+    harness.model.receivedHistory,
+    [{ role: "user", content: "Summarize this attachment." }],
+  );
+  assert.equal(harness.model.receivedUploads[0].filename, "note.txt");
+  assert.equal(harness.db.state.conversations.size, 0);
+  assert.equal(harness.db.state.messages.length, 0);
 });
 
 test("an upstream model failure leaves no row and a retry saves one complete turn", async () => {

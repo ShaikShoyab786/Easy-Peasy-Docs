@@ -23,6 +23,7 @@ import type {
   AccountIdentity,
   ApiError,
   ChatMessageInput,
+  ChatMessageMultipartInput,
   ChatStreamEvent,
   Conversation,
   ConversationCreatePayload,
@@ -30,6 +31,7 @@ import type {
   ConversationRenamePayload,
   CreateMessageBody,
   GuestChatInput,
+  GuestChatMultipartInput,
   GuestChatResponse,
   GuestConversationImportInput,
   HealthStatus,
@@ -154,28 +156,14 @@ export const getSendGuestChatTurnUrl = () => {
  * Generates a reply from the provided conversation history without storing it on the server. Send requests with Accept: text/event-stream for incremental events; JSON is the default.
  * @summary Send a turn in an anonymous chat
  */
-export const sendGuestChatTurn = async (guestChatInput: GuestChatInput, options?: Parameters<typeof customFetch>[1]): Promise<GuestChatResponse | ChatStreamEvent> => {
+export const sendGuestChatTurn = async (sendGuestChatTurnBody: GuestChatInput | GuestChatMultipartInput, options?: Parameters<typeof customFetch>[1]): Promise<GuestChatResponse | ChatStreamEvent> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<GuestChatResponse | ChatStreamEvent>(getSendGuestChatTurnUrl(),
+  return customFetch<GuestChatResponse | ChatStreamEvent>(getSendGuestChatTurnUrl(),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(guestChatInput)
+    method: 'POST'
+    ,
+    body: JSON.stringify(sendGuestChatTurnBody)
   }
 );}
 
@@ -213,9 +201,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type SendGuestChatTurnMutationResult = NonNullable<Awaited<ReturnType<typeof sendGuestChatTurn>>>
-    export type SendGuestChatTurnMutationBody = BodyType<GuestChatInput>
+    export type SendGuestChatTurnMutationBody = BodyType<GuestChatInput | GuestChatMultipartInput>
     export type SendGuestChatTurnMutationError = ErrorType<ApiError>
-    export type SendGuestChatTurnMutationVariables = {data: BodyType<GuestChatInput>}
+    export type SendGuestChatTurnMutationVariables = {data: BodyType<GuestChatInput | GuestChatMultipartInput>}
 
     /**
  * @summary Send a turn in an anonymous chat
@@ -903,28 +891,14 @@ export const getSendConversationChatTurnUrl = (conversationId: string,) => {
  * @summary Send a message and receive a saved assistant reply
  */
 export const sendConversationChatTurn = async (conversationId: string,
-    chatMessageInput: ChatMessageInput, options?: Parameters<typeof customFetch>[1]): Promise<MessageList | ChatStreamEvent> => {
+    sendConversationChatTurnBody: ChatMessageInput | ChatMessageMultipartInput, options?: Parameters<typeof customFetch>[1]): Promise<MessageList | ChatStreamEvent> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<MessageList | ChatStreamEvent>(getSendConversationChatTurnUrl(conversationId),
+  return customFetch<MessageList | ChatStreamEvent>(getSendConversationChatTurnUrl(conversationId),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(chatMessageInput)
+    method: 'POST'
+    ,
+    body: JSON.stringify(sendConversationChatTurnBody)
   }
 );}
 
@@ -962,9 +936,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type SendConversationChatTurnMutationResult = NonNullable<Awaited<ReturnType<typeof sendConversationChatTurn>>>
-    export type SendConversationChatTurnMutationBody = BodyType<ChatMessageInput>
+    export type SendConversationChatTurnMutationBody = BodyType<ChatMessageInput | ChatMessageMultipartInput>
     export type SendConversationChatTurnMutationError = ErrorType<ApiError>
-    export type SendConversationChatTurnMutationVariables = {conversationId: string;data: BodyType<ChatMessageInput>}
+    export type SendConversationChatTurnMutationVariables = {conversationId: string;data: BodyType<ChatMessageInput | ChatMessageMultipartInput>}
 
     /**
  * @summary Send a message and receive a saved assistant reply

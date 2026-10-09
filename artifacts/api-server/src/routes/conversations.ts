@@ -13,11 +13,18 @@ import {
   messagesTable,
 } from "@workspace/db/schema";
 import { z } from "zod/v4";
+import {
+  ChatAttachmentError,
+  getChatAttachmentFiles,
+  parseChatAttachmentUploads,
+} from "../lib/chatAttachments";
 import { logger } from "../lib/logger";
 import { removeStoredObject } from "../lib/storedDocuments";
 import {
+  deleteGrokAttachments,
   generateGrokChatReply,
   GrokChatError,
+  prepareGrokAttachments,
   streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
@@ -392,6 +399,7 @@ router.post(
 router.post(
   "/conversations/:conversationId/chat",
   requireAuth,
+  parseChatAttachmentUploads,
   async (req, res): Promise<void> => {
     const conversationId = getUuidParam(req.params.conversationId);
     if (!conversationId) {
@@ -399,13 +407,44 @@ router.post(
       return;
     }
 
-    const parsed = SendConversationChatTurnBody.safeParse(req.body);
+    const multipart = req.is("multipart/form-data");
+    let requestBody: unknown = req.body;
+    if (multipart) {
+      const createIfMissing = req.body?.createIfMissing;
+      if (
+        createIfMissing !== undefined &&
+        createIfMissing !== "true" &&
+        createIfMissing !== "false"
+      ) {
+        res.status(400).json({ error: "The chat request is invalid." });
+        return;
+      }
+      requestBody = {
+        content: req.body?.content,
+        ...(createIfMissing === undefined
+          ? {}
+          : { createIfMissing: createIfMissing === "true" }),
+      };
+    }
+
+    const parsed = SendConversationChatTurnBody.safeParse(requestBody);
     const content = parsed.success ? parsed.data.content.trim() : "";
     if (!parsed.success || !content) {
       res.status(400).json({
         error: "Message content must be between 1 and 6000 characters.",
       });
       return;
+    }
+
+    let attachments: ReturnType<typeof getChatAttachmentFiles>;
+    try {
+      attachments = getChatAttachmentFiles(req);
+    } catch (error) {
+      if (error instanceof ChatAttachmentError) {
+        res.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+      throw error;
     }
 
     const ownerId = getAuthenticatedUserId(req);
@@ -453,7 +492,15 @@ router.post(
       };
       const stopHeartbeat = startChatStreamHeartbeat(res, 201);
       res.on("close", abortOnDisconnect);
+      let grokAttachments:
+        | Awaited<ReturnType<typeof prepareGrokAttachments>>
+        | undefined;
       try {
+        grokAttachments = await prepareGrokAttachments(
+          apiKey,
+          attachments,
+          streamController.signal,
+        );
         assistantReply = await streamGrokChatReply(
           apiKey,
           history,
@@ -463,6 +510,7 @@ router.post(
             }
           },
           streamController.signal,
+          grokAttachments.parts,
         );
       } catch (error) {
         if (streamController.signal.aborted) {
@@ -495,13 +543,33 @@ router.post(
         }
         return;
       } finally {
+        if (grokAttachments) {
+          const failedDeletes = await deleteGrokAttachments(
+            apiKey,
+            grokAttachments.uploadedFileIds,
+          );
+          if (failedDeletes > 0) {
+            req.log.warn(
+              { failedDeletes },
+              "Temporary Grok attachments could not all be deleted",
+            );
+          }
+        }
         stopHeartbeat();
         res.off("close", abortOnDisconnect);
       }
       if (streamController.signal.aborted) return;
     } else {
+      let grokAttachments:
+        | Awaited<ReturnType<typeof prepareGrokAttachments>>
+        | undefined;
       try {
-        assistantReply = await generateGrokChatReply(apiKey, history);
+        grokAttachments = await prepareGrokAttachments(apiKey, attachments);
+        assistantReply = await generateGrokChatReply(
+          apiKey,
+          history,
+          grokAttachments.parts,
+        );
       } catch (error) {
         if (error instanceof GrokChatError) {
           req.log.warn(
@@ -520,6 +588,19 @@ router.post(
           error: "The assistant service is temporarily unavailable. Please try again.",
         });
         return;
+      } finally {
+        if (grokAttachments) {
+          const failedDeletes = await deleteGrokAttachments(
+            apiKey,
+            grokAttachments.uploadedFileIds,
+          );
+          if (failedDeletes > 0) {
+            req.log.warn(
+              { failedDeletes },
+              "Temporary Grok attachments could not all be deleted",
+            );
+          }
+        }
       }
     }
 

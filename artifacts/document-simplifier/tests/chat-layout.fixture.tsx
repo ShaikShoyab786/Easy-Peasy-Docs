@@ -64,7 +64,22 @@ window.fetch = (input, init) => {
         : input.url;
   const { pathname } = new URL(requestUrl, window.location.origin);
   const method = (init?.method ?? "GET").toUpperCase();
-  const body = typeof init?.body === "string" ? JSON.parse(init.body) as unknown : undefined;
+  let body: unknown;
+  if (typeof init?.body === "string") {
+    body = JSON.parse(init.body) as unknown;
+  } else if (init?.body instanceof FormData) {
+    const multipartBody: Record<string, unknown> = {};
+    const files: { name: string; type: string; size: number }[] = [];
+    for (const [key, value] of init.body.entries()) {
+      if (value instanceof File) {
+        files.push({ name: value.name, type: value.type, size: value.size });
+      } else {
+        multipartBody[key] = value;
+      }
+    }
+    if (files.length) multipartBody.files = files;
+    body = multipartBody;
+  }
   testState.requests.push({ path: pathname, method, body });
 
   if (pathname === "/api/conversations" && method === "GET") {
@@ -77,7 +92,16 @@ window.fetch = (input, init) => {
   }
 
   if (pathname === "/api/guest-chat" && method === "POST") {
-    const content = (body as { messages?: { content: string }[] } | undefined)?.messages?.at(-1)?.content ?? "";
+    const guestBody = body as { messages?: { content: string }[] | string } | undefined;
+    let messages = guestBody?.messages;
+    if (typeof messages === "string") {
+      try {
+        messages = JSON.parse(messages) as { content: string }[];
+      } catch {
+        messages = [];
+      }
+    }
+    const content = Array.isArray(messages) ? messages.at(-1)?.content ?? "" : "";
     return Promise.resolve(streamResponse({
       type: "done",
       content: `A helpful reply to: ${content}`,
@@ -118,10 +142,13 @@ window.fetch = (input, init) => {
   const chatMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/chat$/);
   if (chatMatch && method === "POST") {
     const conversationId = chatMatch[1];
-    const chatBody = body as { content: string; createIfMissing?: boolean };
+    const chatBody = body as {
+      content: string;
+      createIfMissing?: boolean | string;
+    };
     const now = new Date().toISOString();
     if (
-      chatBody.createIfMissing &&
+      (chatBody.createIfMissing === true || chatBody.createIfMissing === "true") &&
       !fixtureConversations.some((conversation) => conversation.id === conversationId)
     ) {
       fixtureConversations = [

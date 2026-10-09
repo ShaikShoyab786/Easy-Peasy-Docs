@@ -287,3 +287,93 @@ test("account New chat stays local until its first completed turn", async ({ pag
     (request) => request.path === "/api/conversations" && request.method === "POST",
   )).toBe(false);
 });
+
+test("guest attachments can be previewed, removed, and sent without storing file data in chat history", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&empty=1");
+  await page.getByTestId("button-open-attachments").click();
+  await expect(page.getByTestId("menu-attachments")).toBeVisible();
+  await expect(page.getByTestId("button-choose-documents")).toContainText("PDF, TXT, Markdown, CSV");
+  await expect(page.getByTestId("button-choose-images")).toContainText("JPG, PNG");
+  await page.getByTestId("button-choose-documents").click();
+  await page.getByTestId("input-upload-documents").setInputFiles([
+    {
+      name: "notes.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.7\nsample document"),
+    },
+    {
+      name: "table.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("item,quantity\napples,4"),
+    },
+  ]);
+
+  await expect(page.getByTestId("list-attached-files").getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByTestId("input-chat-message")).toHaveValue(
+    "Summarize and simplify these attachments.",
+  );
+  await page.getByTestId("button-remove-attachment-0").click();
+  await expect(page.getByTestId("list-attached-files").getByRole("listitem")).toHaveCount(1);
+  await expect(page.getByTestId("input-chat-message")).toHaveValue(
+    "Summarize and simplify the attached file.",
+  );
+
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("content-message-assistant-1")).toContainText(
+    "A helpful reply",
+  );
+  const request = await page.evaluate(() => {
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests ?? [];
+    return requests.find((item) => item.path === "/api/guest-chat" && item.method === "POST");
+  });
+  const requestBody = request?.body as {
+    messages?: string;
+    files?: { name: string; type: string }[];
+  } | undefined;
+  expect(JSON.parse(requestBody?.messages ?? "[]").at(-1)?.content)
+    .toBe("Summarize and simplify the attached file.");
+  expect(requestBody?.files).toEqual([{ name: "table.csv", type: "text/csv", size: 22 }]);
+  const storedChats = await page.evaluate(() => localStorage.getItem(
+    "easy-peasy-docs:guest-conversations:v1",
+  ));
+  expect(storedChats).not.toContain("table.csv");
+  expect(storedChats).not.toContain("apples,4");
+});
+
+test("signed-in draft chat forwards image attachments with its first multipart turn", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account");
+  await page.getByTestId("button-new-chat").click();
+  await page.getByTestId("button-open-attachments").click();
+  await page.getByTestId("button-choose-images").click();
+  await page.getByTestId("input-upload-images").setInputFiles({
+    name: "diagram.png",
+    mimeType: "image/png",
+    buffer: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]),
+  });
+
+  await expect(page.getByTestId("chip-attachment-0")).toContainText("diagram.png");
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("content-message-assistant-1")).toContainText(
+    "A helpful reply",
+  );
+
+  const requests = await page.evaluate(() =>
+    (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests ?? [],
+  );
+  const chatRequest = requests.find(
+    (item) => item.path.match(/^\/api\/conversations\/[^/]+\/chat$/) &&
+      item.method === "POST",
+  );
+  const requestBody = chatRequest?.body as {
+    content?: string;
+    createIfMissing?: string;
+    files?: { name: string; type: string }[];
+  } | undefined;
+  expect(requestBody?.content).toBe("Summarize and simplify the attached file.");
+  expect(requestBody?.createIfMissing).toBe("true");
+  expect(requestBody?.files).toEqual([{ name: "diagram.png", type: "image/png", size: 10 }]);
+});

@@ -9,7 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, Clock3, Menu, MessageSquare, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowUp, Check, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { Link } from "wouter";
 import { AccountActions } from "./account-actions";
 import { requestChatStream } from "./lib/chat-stream";
@@ -29,6 +29,11 @@ const MAX_MESSAGE_CHARS = 6000;
 const MAX_MESSAGES = 32;
 const MAX_TOTAL_CHARS = 20_000;
 const HISTORY_PAGE_SIZE = 8;
+const MAX_ATTACHMENT_FILES = 3;
+const MAX_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_TOTAL_BYTES = 20 * 1024 * 1024;
+const DOCUMENT_ATTACHMENT_ACCEPT = ".pdf,.txt,.md,.csv";
+const IMAGE_ATTACHMENT_ACCEPT = ".jpg,.jpeg,.png";
 
 function localId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -130,6 +135,33 @@ function requestHistory(messages: GuestChatMessage[]) {
   return selected;
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function guestChatRequestBody(messages: GuestChatMessage[], files: File[]) {
+  if (!files.length) return { messages };
+  const formData = new FormData();
+  formData.append("messages", JSON.stringify(messages));
+  files.forEach((file) => formData.append("files", file, file.name));
+  return formData;
+}
+
+function accountChatRequestBody(
+  content: string,
+  createIfMissing: boolean,
+  files: File[],
+) {
+  if (!files.length) return { content, createIfMissing };
+  const formData = new FormData();
+  formData.append("content", content);
+  formData.append("createIfMissing", String(createIfMissing));
+  files.forEach((file) => formData.append("files", file, file.name));
+  return formData;
+}
+
 export function ChatWorkspace({ mode }: { mode: Mode }) {
   const isGuest = mode === "guest";
   const queryClient = useQueryClient();
@@ -144,6 +176,9 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [accountSelectedId, setAccountSelectedId] = useState<string | null>(null);
   const [accountDraft, setAccountDraft] = useState<Conversation | null>(null);
   const [draft, setDraft] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [attachmentError, setAttachmentError] = useState("");
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
@@ -163,7 +198,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [deletingId, setDeletingId] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const autoDraftRef = useRef<string | null>(null);
+  const guestSelectedIdRef = useRef(guestSelectedId);
+  const accountSelectedIdRef = useRef(accountSelectedId);
   const guestControllersRef = useRef(new Map<string, AbortController>());
+  const guestPendingAttachmentsRef = useRef(new Map<string, File[]>());
   const accountControllerRef = useRef<AbortController | null>(null);
   const guestImportAttemptedRef = useRef(false);
 
@@ -302,19 +344,104 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     element.style.height = `${Math.min(element.scrollHeight, 220)}px`;
   }, [draft]);
 
+  useEffect(() => {
+    guestSelectedIdRef.current = guestSelectedId;
+  }, [guestSelectedId]);
+
+  useEffect(() => {
+    accountSelectedIdRef.current = accountSelectedId;
+  }, [accountSelectedId]);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    const closeOnOutsideClick = (event: globalThis.PointerEvent) => {
+      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
+        setAttachmentMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [attachmentMenuOpen]);
+
+  function addSelectedFiles(fileList: FileList | null, acceptedExtensions: string[]) {
+    if (!fileList?.length) return;
+    const newFiles = Array.from(fileList).filter((file) =>
+      !selectedFiles.some((selected) =>
+        selected.name === file.name &&
+        selected.size === file.size &&
+        selected.lastModified === file.lastModified,
+      ),
+    );
+    const allowed = new Set(acceptedExtensions);
+    for (const file of newFiles) {
+      const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+      if (!allowed.has(extension)) {
+        setAttachmentError("Choose a file type supported by this attachment menu.");
+        return;
+      }
+      if (file.size > MAX_ATTACHMENT_FILE_BYTES) {
+        setAttachmentError(`${file.name} is larger than the 10 MB limit.`);
+        return;
+      }
+    }
+    const nextFiles = [...selectedFiles, ...newFiles];
+    if (nextFiles.length > MAX_ATTACHMENT_FILES) {
+      setAttachmentError("Attach up to three files at a time.");
+      return;
+    }
+    if (nextFiles.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES) {
+      setAttachmentError("Attachments must total no more than 20 MB.");
+      return;
+    }
+
+    setAttachmentError("");
+    setSelectedFiles(nextFiles);
+    if (!draft.trim() || (autoDraftRef.current && draft === autoDraftRef.current)) {
+      const prompt = nextFiles.length > 1
+        ? "Summarize and simplify these attachments."
+        : "Summarize and simplify the attached file.";
+      autoDraftRef.current = prompt;
+      setDraft(prompt);
+    }
+  }
+
+  function removeSelectedFile(index: number) {
+    const nextFiles = selectedFiles.filter((_file, fileIndex) => fileIndex !== index);
+    setSelectedFiles(nextFiles);
+    setAttachmentError("");
+    if (autoDraftRef.current && draft === autoDraftRef.current) {
+      if (nextFiles.length === 0) {
+        setDraft("");
+        autoDraftRef.current = null;
+      } else {
+        const prompt = nextFiles.length > 1
+          ? "Summarize and simplify these attachments."
+          : "Summarize and simplify the attached file.";
+        autoDraftRef.current = prompt;
+        setDraft(prompt);
+      }
+    }
+  }
+
   function makeNewChat() {
     setWorkspaceError("");
     setAccountError("");
     if (isGuest) {
       const next = newLocalConversation();
       setGuestConversations((items) => [next, ...items]);
+      guestSelectedIdRef.current = next.id;
       setGuestSelectedId(next.id);
     } else {
       const next = newAccountDraft();
       setAccountDraft(next);
+      accountSelectedIdRef.current = next.id;
       setAccountSelectedId(next.id);
     }
     setDraft("");
+    setSelectedFiles([]);
+    setAttachmentError("");
+    setAttachmentMenuOpen(false);
+    autoDraftRef.current = null;
     setMobileSidebarOpen(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }
@@ -331,11 +458,15 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     if (isGuest) {
       const guestChat = chat as LocalConversation;
       setGuestConversations((items) => items.filter((item) => item.id !== guestChat.id));
+      guestPendingAttachmentsRef.current.delete(guestChat.id);
       if (guestSelectedId === guestChat.id) {
         const next = sortedGuestConversations.find((item) => item.id !== guestChat.id) ?? newLocalConversation();
         setGuestConversations((items) => items.some((item) => item.id === next.id) ? items : [next, ...items]);
+        guestSelectedIdRef.current = next.id;
         setGuestSelectedId(next.id);
         setDraft("");
+        setSelectedFiles([]);
+        autoDraftRef.current = null;
       }
       return;
     }
@@ -351,8 +482,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         queryClient.removeQueries({ queryKey: getListConversationMessagesQueryKey(conversation.id) }),
       ]);
       if (accountSelectedId === conversation.id) {
+        accountSelectedIdRef.current = remaining[0]?.id ?? null;
         setAccountSelectedId(remaining[0]?.id ?? null);
         setDraft("");
+        setSelectedFiles([]);
+        autoDraftRef.current = null;
       }
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : "This chat could not be deleted.");
@@ -361,7 +495,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     }
   }
 
-  async function sendGuest(chatId: string, history: GuestChatMessage[]) {
+  async function sendGuest(
+    chatId: string,
+    history: GuestChatMessage[],
+    attachments: File[] = [],
+  ) {
     setGuestErrors((errors) => ({ ...errors, [chatId]: "" }));
     setGuestSendingIds((ids) => ids.includes(chatId) ? ids : [...ids, chatId]);
     const controller = new AbortController();
@@ -370,7 +508,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     try {
       const response = await requestChatStream(
         "/api/guest-chat",
-        { messages: requestHistory(history) },
+        guestChatRequestBody(requestHistory(history), attachments),
         (delta) => setGuestStreamReplies((replies) => ({
           ...replies,
           [chatId]: (replies[chatId] ?? "") + delta,
@@ -382,10 +520,15 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       setGuestConversations((items) => items.map((chat) => chat.id === chatId
         ? { ...chat, messages: [...chat.messages, { role: "assistant", content }], updatedAt: Date.now() }
         : chat));
+      guestPendingAttachmentsRef.current.delete(chatId);
+      if (chatId === guestSelectedIdRef.current) {
+        setSelectedFiles([]);
+        autoDraftRef.current = null;
+      }
     } catch (cause) {
       const latestUserText = history[history.length - 1]?.role === "user" ? history[history.length - 1].content : "";
       setGuestErrors((errors) => ({ ...errors, [chatId]: cause instanceof Error && cause.message ? cause.message : "That message did not send. Please try again." }));
-      if (chatId === guestSelectedId) setDraft((current) => current || latestUserText);
+      if (chatId === guestSelectedIdRef.current) setDraft((current) => current || latestUserText);
     } finally {
       if (guestControllersRef.current.get(chatId) === controller) {
         guestControllersRef.current.delete(chatId);
@@ -424,7 +567,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const content = draft.trim();
+    const content = draft.trim() || (selectedFiles.length
+      ? selectedFiles.length > 1
+        ? "Summarize and simplify these attachments."
+        : "Summarize and simplify the attached file."
+      : "");
     if (!content || isSending || content.length > MAX_MESSAGE_CHARS) return;
     if (isGuest) {
       if (!activeGuest) return;
@@ -433,7 +580,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         ? { ...chat, title: chat.messages.length ? chat.title : makeTitle(content), messages: nextMessages, updatedAt: Date.now() }
         : chat));
       setDraft("");
-      void sendGuest(activeGuest.id, nextMessages);
+      guestPendingAttachmentsRef.current.set(activeGuest.id, selectedFiles);
+      void sendGuest(activeGuest.id, nextMessages, selectedFiles);
       return;
     }
     if (!activeAccount) {
@@ -447,7 +595,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     try {
       const response = await requestChatStream(
         `/api/conversations/${activeAccount.id}/chat`,
-        { content, createIfMissing: isAccountDraft },
+        accountChatRequestBody(content, isAccountDraft, selectedFiles),
         (delta) => setAccountPendingTurn((turn) =>
           turn?.conversationId === activeAccount.id
             ? { ...turn, reply: turn.reply + delta }
@@ -464,8 +612,13 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         queryClient.invalidateQueries({ queryKey: getListConversationMessagesQueryKey(activeAccount.id) }),
         queryClient.invalidateQueries({ queryKey: getListConversationsQueryKey() }),
       ]);
-      if (isAccountDraft) setAccountDraft(null);
-      setDraft("");
+      if (accountSelectedIdRef.current === activeAccount.id) {
+        if (isAccountDraft) setAccountDraft(null);
+        setDraft("");
+        setSelectedFiles([]);
+        setAttachmentError("");
+        autoDraftRef.current = null;
+      }
     } catch (cause) {
       setAccountError(cause instanceof Error && cause.message ? cause.message : "Your message could not be sent. Your draft is still here.");
       void queryClient.invalidateQueries({
@@ -488,13 +641,20 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   function selectChat(id: string) {
     if (isGuest) {
+      guestSelectedIdRef.current = id;
       setGuestSelectedId(id);
       setGuestErrors((errors) => ({ ...errors, [id]: "" }));
+      setSelectedFiles(guestPendingAttachmentsRef.current.get(id) ?? []);
     } else {
+      accountSelectedIdRef.current = id;
       setAccountSelectedId(id);
       setAccountError("");
+      setSelectedFiles([]);
     }
     setDraft("");
+    autoDraftRef.current = null;
+    setAttachmentError("");
+    setAttachmentMenuOpen(false);
     setMobileSidebarOpen(false);
   }
 
@@ -683,15 +843,44 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           </div>}
           {currentError && <div className="chat-error" role="alert" data-testid="status-chat-error">
             <span>{currentError}</span>
-            {isGuest && activeGuest?.messages.at(-1)?.role === "user" && <button type="button" onClick={() => void sendGuest(activeGuest.id, activeGuest.messages)} disabled={isSending} data-testid="button-retry-message">Try again</button>}
+            {isGuest && activeGuest?.messages.at(-1)?.role === "user" && <button type="button" onClick={() => void sendGuest(activeGuest.id, activeGuest.messages, guestPendingAttachmentsRef.current.get(activeGuest.id) ?? [])} disabled={isSending} data-testid="button-retry-message">Try again</button>}
             <button type="button" aria-label="Dismiss error" onClick={() => isGuest ? setGuestErrors((errors) => ({ ...errors, [guestSelectedId]: "" })) : setAccountError("")}><X size={14} /></button>
           </div>}
+          {attachmentError && <div className="chat-error" role="alert" data-testid="status-attachment-error">
+            <span>{attachmentError}</span>
+            <button type="button" aria-label="Dismiss attachment error" onClick={() => setAttachmentError("")}><X size={14} /></button>
+          </div>}
           <form className="message-composer" onSubmit={(event) => void submit(event)} data-testid="form-chat-composer">
+            {selectedFiles.length > 0 && <div className="composer-attachments" role="list" aria-label="Attached files" data-testid="list-attached-files">
+              {selectedFiles.map((file, index) => {
+                const isImage = /\.(jpe?g|png)$/i.test(file.name);
+                return (
+                  <div className="attachment-chip" role="listitem" key={`${file.name}-${file.lastModified}-${index}`} data-testid={`chip-attachment-${index}`}>
+                    <span className="attachment-chip-icon">{isImage ? <ImageIcon size={15} /> : <FileText size={15} />}</span>
+                    <span className="attachment-chip-copy">
+                      <span className="attachment-chip-name" title={file.name}>{file.name}</span>
+                      <span className="attachment-chip-size">{formatFileSize(file.size)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${file.name}`}
+                      onClick={() => removeSelectedFile(index)}
+                      disabled={isSending}
+                      data-testid={`button-remove-attachment-${index}`}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>}
             <textarea
               ref={textareaRef}
               value={draft}
               onChange={(event) => {
                 setDraft(event.target.value.slice(0, MAX_MESSAGE_CHARS));
+                autoDraftRef.current = null;
+                setAttachmentError("");
                 if (isGuest) setGuestErrors((errors) => ({ ...errors, [guestSelectedId]: "" }));
                 else setAccountError("");
               }}
@@ -704,8 +893,91 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               data-testid="input-chat-message"
             />
             <div className="composer-controls">
-              <span>{draft.length > MAX_MESSAGE_CHARS - 500 ? `${draft.length.toLocaleString()} / ${MAX_MESSAGE_CHARS.toLocaleString()}` : "Enter to send · Shift + Enter for a new line"}</span>
-              <button type="submit" disabled={!draft.trim() || isSending || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
+              <div className="composer-actions">
+                <div className="attachment-picker" ref={attachmentMenuRef}>
+                  <button
+                    type="button"
+                    className="attachment-trigger"
+                    aria-label="Attach files"
+                    aria-haspopup="true"
+                    aria-expanded={attachmentMenuOpen}
+                    onClick={() => setAttachmentMenuOpen((open) => !open)}
+                    disabled={isSending || (!isGuest && !activeAccount)}
+                    data-testid="button-open-attachments"
+                  >
+                    <Plus size={19} strokeWidth={1.9} />
+                  </button>
+                  {attachmentMenuOpen && <div
+                    className="attachment-menu"
+                    role="group"
+                    aria-label="Choose attachment type"
+                    data-testid="menu-attachments"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setAttachmentMenuOpen(false);
+                        textareaRef.current?.focus();
+                      }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="attachment-menu-option"
+                      onClick={() => {
+                        setAttachmentMenuOpen(false);
+                        documentInputRef.current?.click();
+                      }}
+                      data-testid="button-choose-documents"
+                    >
+                      <span className="attachment-menu-icon"><FileText size={17} /></span>
+                      <span><strong>Upload documents</strong><small>PDF, TXT, Markdown, CSV</small></span>
+                    </button>
+                    <button
+                      type="button"
+                      className="attachment-menu-option"
+                      onClick={() => {
+                        setAttachmentMenuOpen(false);
+                        imageInputRef.current?.click();
+                      }}
+                      data-testid="button-choose-images"
+                    >
+                      <span className="attachment-menu-icon attachment-menu-image"><ImageIcon size={17} /></span>
+                      <span><strong>Upload images</strong><small>JPG, PNG screenshots</small></span>
+                    </button>
+                  </div>}
+                  <input
+                    ref={documentInputRef}
+                    className="attachment-file-input"
+                    type="file"
+                    accept={DOCUMENT_ATTACHMENT_ACCEPT}
+                    multiple
+                    aria-label="Choose documents"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    onChange={(event) => {
+                      addSelectedFiles(event.target.files, [".pdf", ".txt", ".md", ".csv"]);
+                      event.target.value = "";
+                    }}
+                    data-testid="input-upload-documents"
+                  />
+                  <input
+                    ref={imageInputRef}
+                    className="attachment-file-input"
+                    type="file"
+                    accept={IMAGE_ATTACHMENT_ACCEPT}
+                    multiple
+                    aria-label="Choose images"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    onChange={(event) => {
+                      addSelectedFiles(event.target.files, [".jpg", ".jpeg", ".png"]);
+                      event.target.value = "";
+                    }}
+                    data-testid="input-upload-images"
+                  />
+                </div>
+                <span>{draft.length > MAX_MESSAGE_CHARS - 500 ? `${draft.length.toLocaleString()} / ${MAX_MESSAGE_CHARS.toLocaleString()}` : "Enter to send · Shift + Enter for a new line"}</span>
+              </div>
+              <button type="submit" disabled={(!draft.trim() && selectedFiles.length === 0) || isSending || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
                 {isSending ? <span className="send-loader" /> : <ArrowUp size={18} strokeWidth={2.2} />}
               </button>
             </div>

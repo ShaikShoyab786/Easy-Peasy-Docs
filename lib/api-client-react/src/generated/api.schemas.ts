@@ -130,6 +130,32 @@ export interface GuestChatInput {
   messages: GuestChatMessage[];
 }
 
+export interface GuestChatMultipartInput {
+  /** JSON-serialized guest chat history. */
+  messages: string;
+  /** @maxItems 3 */
+  files: Blob[];
+}
+
+export type ChatMessageMultipartInputCreateIfMissing = typeof ChatMessageMultipartInputCreateIfMissing[keyof typeof ChatMessageMultipartInputCreateIfMissing];
+
+
+export const ChatMessageMultipartInputCreateIfMissing = {
+  true: 'true',
+  false: 'false',
+} as const;
+
+export interface ChatMessageMultipartInput {
+  /**
+     * @minLength 1
+     * @maxLength 6000
+     */
+  content: string;
+  createIfMissing?: ChatMessageMultipartInputCreateIfMissing;
+  /** @maxItems 3 */
+  files: Blob[];
+}
+
 export interface GuestChatResponse {
   content: string;
 }

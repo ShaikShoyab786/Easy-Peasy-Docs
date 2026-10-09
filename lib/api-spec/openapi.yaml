@@ -40,6 +40,9 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/GuestChatInput"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/GuestChatMultipartInput"
       responses:
         "200":
           description: Assistant reply
@@ -350,6 +353,9 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ChatMessageInput"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ChatMessageMultipartInput"
       responses:
         "201":
           description: User and assistant messages saved in creation order, returned as JSON or incremental events.
@@ -539,6 +545,36 @@ components:
           items:
             $ref: "#/components/schemas/GuestChatMessage"
       required: [messages]
+    GuestChatMultipartInput:
+      type: object
+      properties:
+        messages:
+          type: string
+          description: JSON-serialized guest chat history.
+        files:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            format: binary
+      required: [messages, files]
+    ChatMessageMultipartInput:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        createIfMissing:
+          type: string
+          enum: ["true", "false"]
+        files:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            format: binary
+      required: [content, files]
     GuestChatResponse:
       type: object
       properties:

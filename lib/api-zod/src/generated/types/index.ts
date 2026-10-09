@@ -9,6 +9,8 @@
 export * from './accountIdentity';
 export * from './apiError';
 export * from './chatMessageInput';
+export * from './chatMessageMultipartInput';
+export * from './chatMessageMultipartInputCreateIfMissing';
 export * from './chatStreamDelta';
 export * from './chatStreamDone';
 export * from './chatStreamError';
@@ -21,6 +23,7 @@ export * from './createMessageBody';
 export * from './guestChatInput';
 export * from './guestChatMessage';
 export * from './guestChatMessageRole';
+export * from './guestChatMultipartInput';
 export * from './guestChatResponse';
 export * from './guestConversationImportInput';
 export * from './guestConversationImportMessage';

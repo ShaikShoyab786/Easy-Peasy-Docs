@@ -1,11 +1,18 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type RequestHandler } from "express";
 import {
   SendGuestChatTurnBody,
   SendGuestChatTurnResponse,
 } from "@workspace/api-zod";
 import {
+  ChatAttachmentError,
+  getChatAttachmentFiles,
+  parseChatAttachmentUploads,
+} from "../lib/chatAttachments";
+import {
+  deleteGrokAttachments,
   generateGrokChatReply,
   GrokChatError,
+  prepareGrokAttachments,
   streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
@@ -93,7 +100,7 @@ function checkRateLimit(
   return { allowed: true };
 }
 
-router.post("/guest-chat", async (req, res): Promise<void> => {
+const enforceGuestRateLimit: RequestHandler = (req, res, next) => {
   const rateLimit = checkRateLimit(req.ip || "unknown");
   if (!rateLimit.allowed) {
     req.log.warn("Anonymous chat rate limit exceeded");
@@ -101,8 +108,27 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
     res.status(429).json({ error: "Too many messages. Please try again shortly." });
     return;
   }
+  next();
+};
 
-  const parsed = SendGuestChatTurnBody.safeParse(req.body);
+router.post(
+  "/guest-chat",
+  enforceGuestRateLimit,
+  parseChatAttachmentUploads,
+  async (req, res): Promise<void> => {
+  const requestBody = req.is("multipart/form-data")
+    ? (() => {
+        try {
+          return typeof req.body?.messages === "string"
+            ? { messages: JSON.parse(req.body.messages) as unknown }
+            : null;
+        } catch {
+          return null;
+        }
+      })()
+    : req.body;
+
+  const parsed = SendGuestChatTurnBody.safeParse(requestBody);
   if (!parsed.success) {
     res.status(400).json({
       error: "Chat history must contain 1 to 32 messages of up to 6,000 characters each.",
@@ -125,6 +151,17 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
     return;
   }
 
+  let attachments: ReturnType<typeof getChatAttachmentFiles>;
+  try {
+    attachments = getChatAttachmentFiles(req);
+  } catch (error) {
+    if (error instanceof ChatAttachmentError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+
   const apiKey = process.env.XAI_API_KEY?.trim();
   if (!apiKey) {
     res.status(503).json({
@@ -140,7 +177,15 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
     };
     const stopHeartbeat = startChatStreamHeartbeat(res);
     res.on("close", abortOnDisconnect);
+    let grokAttachments:
+      | Awaited<ReturnType<typeof prepareGrokAttachments>>
+      | undefined;
     try {
+      grokAttachments = await prepareGrokAttachments(
+        apiKey,
+        attachments,
+        controller.signal,
+      );
       const content = await streamGrokChatReply(
         apiKey,
         selectRecentHistory(history),
@@ -150,6 +195,7 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
           }
         },
         controller.signal,
+        grokAttachments.parts,
       );
       if (controller.signal.aborted) return;
       writeChatStreamEvent(res, { type: "done", content });
@@ -183,16 +229,33 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
         res.status(503).json({ error: message });
       }
     } finally {
+      if (grokAttachments) {
+        const failedDeletes = await deleteGrokAttachments(
+          apiKey,
+          grokAttachments.uploadedFileIds,
+        );
+        if (failedDeletes > 0) {
+          req.log.warn(
+            { failedDeletes },
+            "Temporary Grok attachments could not all be deleted",
+          );
+        }
+      }
       stopHeartbeat();
       res.off("close", abortOnDisconnect);
     }
     return;
   }
 
+  let grokAttachments:
+    | Awaited<ReturnType<typeof prepareGrokAttachments>>
+    | undefined;
   try {
+    grokAttachments = await prepareGrokAttachments(apiKey, attachments);
     const content = await generateGrokChatReply(
       apiKey,
       selectRecentHistory(history),
+      grokAttachments.parts,
     );
     res
       .status(200)
@@ -214,7 +277,21 @@ router.post("/guest-chat", async (req, res): Promise<void> => {
     res.status(503).json({
       error: "The assistant service is temporarily unavailable. Please try again.",
     });
+  } finally {
+    if (grokAttachments) {
+      const failedDeletes = await deleteGrokAttachments(
+        apiKey,
+        grokAttachments.uploadedFileIds,
+      );
+      if (failedDeletes > 0) {
+        req.log.warn(
+          { failedDeletes },
+          "Temporary Grok attachments could not all be deleted",
+        );
+      }
+    }
   }
-});
+  },
+);
 
 export default router;
