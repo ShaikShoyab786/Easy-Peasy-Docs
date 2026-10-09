@@ -2,6 +2,8 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
+  ImportGuestConversationBody,
+  ImportGuestConversationResponse,
   SendConversationChatTurnBody,
   SendConversationChatTurnResponse,
 } from "@workspace/api-zod";
@@ -69,6 +71,33 @@ async function getOwnedConversation(conversationId: string, ownerId: string) {
   return conversation;
 }
 
+async function getConversation(conversationId: string) {
+  const [conversation] = await db
+    .select()
+    .from(conversationsTable)
+    .where(eq(conversationsTable.id, conversationId));
+  return conversation;
+}
+
+async function importedConversationMatches(
+  conversationId: string,
+  title: string,
+  messages: { role: "user" | "assistant"; content: string }[],
+): Promise<boolean> {
+  const conversation = await getConversation(conversationId);
+  if (!conversation || conversation.title !== title) return false;
+  const existingMessages = await db
+    .select({ role: messagesTable.role, content: messagesTable.content })
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(asc(messagesTable.createdAt), asc(messagesTable.id));
+  return existingMessages.length === messages.length &&
+    existingMessages.every((message, index) =>
+      message.role === messages[index]?.role &&
+      message.content === messages[index]?.content,
+    );
+}
+
 function selectChatHistory(
   newestFirstMessages: AssistantHistoryMessage[],
 ): AssistantHistoryMessage[] {
@@ -119,6 +148,89 @@ router.post("/conversations", requireAuth, async (req, res) => {
 
   res.status(201).json(conversation);
 });
+
+router.post(
+  "/conversations/import-guest",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const parsed = ImportGuestConversationBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid guest conversation." });
+      return;
+    }
+
+    const ownerId = getAuthenticatedUserId(req);
+    const input = parsed.data;
+    const existing = await getConversation(input.id);
+    if (existing) {
+      if (
+        existing.ownerId !== ownerId ||
+        !(await importedConversationMatches(
+          input.id,
+          input.title,
+          input.messages,
+        ))
+      ) {
+        res.status(409).json({ error: "This conversation could not be imported." });
+        return;
+      }
+      res.status(201).json(ImportGuestConversationResponse.parse(existing));
+      return;
+    }
+
+    const createdAt = new Date();
+    const updatedAt = new Date(createdAt.getTime() + input.messages.length);
+    try {
+      const conversation = await db.transaction(async (tx) => {
+        const [createdConversation] = await tx
+          .insert(conversationsTable)
+          .values({
+            id: input.id,
+            ownerId,
+            title: input.title,
+            createdAt,
+            updatedAt,
+          })
+          .returning();
+        await tx.insert(messagesTable).values(
+          input.messages.map((message, index) => ({
+            conversationId: createdConversation.id,
+            role: message.role,
+            content: message.content,
+            createdAt: new Date(createdAt.getTime() + index),
+          })),
+        );
+        return createdConversation;
+      });
+
+      res.status(201).json(ImportGuestConversationResponse.parse(conversation));
+    } catch (error) {
+      const errorCode =
+        error && typeof error === "object" && "code" in error
+          ? error.code
+          : undefined;
+      if (errorCode === "23505") {
+        const racedConversation = await getConversation(input.id);
+        if (
+          racedConversation?.ownerId === ownerId &&
+          (await importedConversationMatches(
+            input.id,
+            input.title,
+            input.messages,
+          ))
+        ) {
+          res.status(201).json(
+            ImportGuestConversationResponse.parse(racedConversation),
+          );
+          return;
+        }
+        res.status(409).json({ error: "This conversation could not be imported." });
+        return;
+      }
+      throw error;
+    }
+  },
+);
 
 router.patch("/conversations/:conversationId", requireAuth, async (req, res) => {
   const conversationId = getUuidParam(req.params.conversationId);
@@ -293,8 +405,12 @@ router.post(
     }
 
     const ownerId = getAuthenticatedUserId(req);
+    const createIfMissing = parsed.data.createIfMissing === true;
     const conversation = await getOwnedConversation(conversationId, ownerId);
-    if (!conversation) {
+    if (
+      !conversation &&
+      (!createIfMissing || (await getConversation(conversationId)) !== undefined)
+    ) {
       res.status(404).json({ error: "Conversation not found." });
       return;
     }
@@ -307,15 +423,17 @@ router.post(
       return;
     }
 
-    const previousMessages = await db
-      .select({
-        role: messagesTable.role,
-        content: messagesTable.content,
-      })
-      .from(messagesTable)
-      .where(eq(messagesTable.conversationId, conversation.id))
-      .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
-      .limit(MAX_CHAT_HISTORY_MESSAGES);
+    const previousMessages = conversation
+      ? await db
+          .select({
+            role: messagesTable.role,
+            content: messagesTable.content,
+          })
+          .from(messagesTable)
+          .where(eq(messagesTable.conversationId, conversationId))
+          .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
+          .limit(MAX_CHAT_HISTORY_MESSAGES)
+      : [];
 
     const history = [
       ...selectChatHistory(previousMessages),
@@ -403,7 +521,7 @@ router.post(
     let storedTurn: { items: typeof messagesTable.$inferSelect[] } | null;
     try {
       storedTurn = await db.transaction(async (tx) => {
-      const [currentConversation] = await tx
+      let [currentConversation] = await tx
         .select({
           id: conversationsTable.id,
           title: conversationsTable.title,
@@ -411,11 +529,22 @@ router.post(
         .from(conversationsTable)
         .where(
           and(
-            eq(conversationsTable.id, conversation.id),
+            eq(conversationsTable.id, conversationId),
             eq(conversationsTable.ownerId, ownerId),
           ),
         )
         .for("update");
+
+      if (!currentConversation && createIfMissing) {
+        [currentConversation] = await tx
+          .insert(conversationsTable)
+          .values({
+            id: conversationId,
+            ownerId,
+            title: titleFromFirstMessage(content),
+          })
+          .returning({ id: conversationsTable.id, title: conversationsTable.title });
+      }
 
       if (!currentConversation) return null;
 
@@ -424,7 +553,7 @@ router.post(
       const [userMessage] = await tx
         .insert(messagesTable)
         .values({
-          conversationId: conversation.id,
+          conversationId: currentConversation.id,
           role: "user",
           content,
           createdAt: userCreatedAt,
@@ -433,7 +562,7 @@ router.post(
       const [assistantMessage] = await tx
         .insert(messagesTable)
         .values({
-          conversationId: conversation.id,
+          conversationId: currentConversation.id,
           role: "assistant",
           content: assistantReply,
           createdAt: assistantCreatedAt,
@@ -448,7 +577,7 @@ router.post(
             ? { title: titleFromFirstMessage(content) }
             : {}),
         })
-        .where(eq(conversationsTable.id, conversation.id));
+        .where(eq(conversationsTable.id, currentConversation.id));
 
       return { items: [userMessage, assistantMessage] };
       });

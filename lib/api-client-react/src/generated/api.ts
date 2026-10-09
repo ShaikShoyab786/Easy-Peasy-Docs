@@ -31,6 +31,7 @@ import type {
   CreateMessageBody,
   GuestChatInput,
   GuestChatResponse,
+  GuestConversationImportInput,
   HealthStatus,
   Message,
   MessageList
@@ -470,6 +471,94 @@ export const useCreateConversation = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getCreateConversationMutationOptions(options));
+    }
+
+export const getImportGuestConversationUrl = () => {
+
+
+
+
+  return `/api/conversations/import-guest`
+}
+
+/**
+ * @summary Copy a guest conversation into the signed-in user's account
+ */
+export const importGuestConversation = async (guestConversationImportInput: GuestConversationImportInput, options?: Parameters<typeof customFetch>[1]): Promise<Conversation> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Conversation>(getImportGuestConversationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(guestConversationImportInput)
+  }
+);}
+
+
+
+
+
+export const getImportGuestConversationMutationKey = () => ['importGuestConversation'] as const;
+
+export const getImportGuestConversationMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importGuestConversation>>, TError,ImportGuestConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importGuestConversation>>, TError,ImportGuestConversationMutationVariables, TContext> => {
+
+const mutationKey = getImportGuestConversationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importGuestConversation>>, ImportGuestConversationMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  importGuestConversation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportGuestConversationMutationResult = NonNullable<Awaited<ReturnType<typeof importGuestConversation>>>
+    export type ImportGuestConversationMutationBody = BodyType<GuestConversationImportInput>
+    export type ImportGuestConversationMutationError = ErrorType<ApiError>
+    export type ImportGuestConversationMutationVariables = {data: BodyType<GuestConversationImportInput>}
+
+    /**
+ * @summary Copy a guest conversation into the signed-in user's account
+ */
+export const useImportGuestConversation = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importGuestConversation>>, TError,ImportGuestConversationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importGuestConversation>>,
+        TError,
+        ImportGuestConversationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getImportGuestConversationMutationOptions(options));
     }
 
 export const getRenameConversationUrl = (conversationId: string,) => {

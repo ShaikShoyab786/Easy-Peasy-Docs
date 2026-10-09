@@ -70,6 +70,39 @@ export interface ChatMessageInput {
      * @maxLength 6000
      */
   content: string;
+  /** Create and save a new account conversation with its first completed turn if the identifier does not exist. */
+  createIfMissing?: boolean;
+}
+
+export type GuestConversationImportMessageRole = typeof GuestConversationImportMessageRole[keyof typeof GuestConversationImportMessageRole];
+
+
+export const GuestConversationImportMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface GuestConversationImportMessage {
+  role: GuestConversationImportMessageRole;
+  /**
+     * @minLength 1
+     * @maxLength 30000
+     */
+  content: string;
+}
+
+export interface GuestConversationImportInput {
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+  /**
+     * @minItems 1
+     * @maxItems 500
+     */
+  messages: GuestConversationImportMessage[];
 }
 
 export type GuestChatMessageRole = typeof GuestChatMessageRole[keyof typeof GuestChatMessageRole];

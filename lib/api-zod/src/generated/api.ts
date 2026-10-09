@@ -80,6 +80,34 @@ export const CreateConversationResponse = zod.object({
 
 
 /**
+ * @summary Copy a guest conversation into the signed-in user's account
+ */
+export const importGuestConversationBodyTitleMax = 120;
+
+export const importGuestConversationBodyMessagesItemContentMax = 30000;
+
+export const importGuestConversationBodyMessagesMax = 500;
+
+
+
+export const ImportGuestConversationBody = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().min(1).max(importGuestConversationBodyTitleMax),
+  "messages": zod.array(zod.object({
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string().min(1).max(importGuestConversationBodyMessagesItemContentMax)
+})).min(1).max(importGuestConversationBodyMessagesMax)
+})
+
+export const ImportGuestConversationResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Rename a user-owned conversation
  */
 export const RenameConversationParams = zod.object({
@@ -167,7 +195,8 @@ export const sendConversationChatTurnBodyContentMax = 6000;
 
 
 export const SendConversationChatTurnBody = zod.object({
-  "content": zod.string().min(1).max(sendConversationChatTurnBodyContentMax)
+  "content": zod.string().min(1).max(sendConversationChatTurnBodyContentMax),
+  "createIfMissing": zod.boolean().optional().describe('Create and save a new account conversation with its first completed turn if the identifier does not exist.')
 })
 
 export const SendConversationChatTurnResponse = zod.object({

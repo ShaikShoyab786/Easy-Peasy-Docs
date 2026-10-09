@@ -12,4 +12,6 @@ export interface ChatMessageInput {
      * @maxLength 6000
      */
   content: string;
+  /** Create and save a new account conversation with its first completed turn if the identifier does not exist. */
+  createIfMissing?: boolean;
 }

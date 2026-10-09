@@ -76,11 +76,11 @@ function UserPortalRoute() {
 }
 
 function SignInPage() {
-  return <div className="auth-page"><div className="auth-context"><span className="auth-mark">EP</span><span>Easy Peasy Docs</span><p>Your own space to ask, explore, and think things through.</p></div><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} appearance={clerkAppearance} /></div>;
+  return <div className="auth-page"><div className="auth-context"><span className="auth-mark">EP</span><span>Easy Peasy Docs</span><p>Your own space to ask, explore, and think things through.</p></div><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={`${basePath}/user-portal`} appearance={clerkAppearance} /></div>;
 }
 
 function SignUpPage() {
-  return <div className="auth-page"><div className="auth-context"><span className="auth-mark">EP</span><span>Easy Peasy Docs</span><p>A personal space for your conversations and ideas.</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} appearance={clerkAppearance} /></div>;
+  return <div className="auth-page"><div className="auth-context"><span className="auth-mark">EP</span><span>Easy Peasy Docs</span><p>A personal space for your conversations and ideas.</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} forceRedirectUrl={`${basePath}/user-portal`} appearance={clerkAppearance} /></div>;
 }
 
 function ClerkQueryClientCacheInvalidator() {
