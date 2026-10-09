@@ -18,7 +18,8 @@ test("guest Knowledge Hub is separate from recent chats and returns to the selec
 
   await recentChat.click();
   await expect(page.getByTestId("page-knowledge-hub")).toHaveCount(0);
-  await expect(page.getByTestId("content-chat-welcome")).toBeVisible();
+  await expect(page.getByTestId("content-chat-messages")).toBeVisible();
+  await expect(page.getByTestId("form-chat-composer")).toBeVisible();
 });
 
 test("account Knowledge Hub can return to a new chat", async ({ page }) => {

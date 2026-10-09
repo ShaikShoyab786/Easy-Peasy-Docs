@@ -92,7 +92,6 @@
 }
 
 .knowledge-hub-hero h1 {
-  max-width: 600px;
   font-size: clamp(33px, 3.75vw, 47px);
 }
 

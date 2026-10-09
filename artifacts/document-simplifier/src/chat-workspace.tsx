@@ -10,7 +10,7 @@ import {
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, BookOpen, Check, CheckCheck, Clipboard, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Pencil, Plus, RotateCw, Search, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Clipboard, Clock3, FileText, Image as ImageIcon, Menu, MessageSquare, Pencil, Plus, RotateCw, Search, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import { Link } from "wouter";
 import { AccountActions } from "./account-actions";
 import { requestChatStream } from "./lib/chat-stream";
@@ -922,6 +922,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         >
           <span className="chat-knowledge-icon"><BookOpen size={18} strokeWidth={1.8} /></span>
           <span className="chat-knowledge-title">Knowledge Hub</span>
+          <ChevronRight size={16} className="chat-knowledge-chevron" aria-hidden="true" />
         </button>
         <div className="chat-history-label"><span>RECENT</span><span>{visibleHistoryItems.length}</span></div>
         <label className="conversation-search">

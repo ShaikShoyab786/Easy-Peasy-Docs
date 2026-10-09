@@ -1,4 +1,4 @@
-import { BookOpen, Check, ChevronRight, Menu, MessageSquare, Plus, Search, Sparkles, X } from "lucide-react";
+import { BookOpen, Check, ChevronRight, Menu, MessageSquare, Plus, Search, Sparkles } from "lucide-react";
 import "./_group.css";
 import "./KnowledgeHub.css";
 
@@ -25,7 +25,6 @@ export function KnowledgeHub() {
         <label className="conversation-search">
           <Search size={14} aria-hidden="true" />
           <input type="search" placeholder="Search chats" aria-label="Search conversations" />
-          <button type="button" aria-label="Clear search"><X size={13} /></button>
         </label>
         <div className="chat-history-list">
           <div className="history-row">

@@ -1,4 +1,4 @@
-import { ArrowUp, Check, Clock3, Menu, MessageSquare, Plus, Search, Sparkles, X } from "lucide-react";
+import { ArrowUp, Check, Clock3, Menu, Plus, Search, Sparkles } from "lucide-react";
 import "./_group.css";
 
 export function Current() {
@@ -15,24 +15,16 @@ export function Current() {
           <Plus size={16} />
           <span>New chat</span>
         </button>
-        <div className="chat-history-label"><span>RECENT</span><span>2</span></div>
+        <div className="chat-history-label"><span>RECENT</span><span>0</span></div>
         <label className="conversation-search">
           <Search size={14} aria-hidden="true" />
           <input type="search" placeholder="Search chats" aria-label="Search conversations" />
-          <button type="button" aria-label="Clear search"><X size={13} /></button>
         </label>
         <div className="chat-history-list">
-          <div className="history-row is-current">
-            <button type="button" className="history-select">
-              <MessageSquare size={15} strokeWidth={1.7} />
-              <span className="history-chat-name">Where to save meeting notes</span>
-            </button>
-          </div>
-          <div className="history-row">
-            <button type="button" className="history-select">
-              <MessageSquare size={15} strokeWidth={1.7} />
-              <span className="history-chat-name">Orbit and gravity basics</span>
-            </button>
+          <div className="history-blank">
+            <Clock3 size={16} />
+            <p>No chats yet</p>
+            <span>Start a new conversation when you’re ready.</span>
           </div>
         </div>
         <div className="chat-sidebar-bottom">
@@ -49,7 +41,7 @@ export function Current() {
           <div className="chat-top-title">
             <span className="chat-presence"><span /> Easy Peasy</span>
             <span className="top-title-divider">/</span>
-            <span className="top-chat-title">Where to save meeting notes</span>
+            <span className="top-chat-title">New chat</span>
           </div>
           <button type="button" className="top-new-button" aria-label="Start a new chat"><Plus size={17} /></button>
         </header>

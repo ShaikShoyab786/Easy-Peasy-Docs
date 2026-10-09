@@ -438,6 +438,7 @@
   font-weight: 700;
   letter-spacing: -.01em;
 }
+.chat-knowledge-chevron { flex: none; color: #90a0a7; }
 .chat-history-label { margin-top: 22px; }
 .knowledge-hub-view {
   display: grid;
@@ -451,7 +452,7 @@
 }
 .knowledge-hub-hero {
   display: grid;
-  max-width: 560px;
+  max-width: 760px;
   justify-items: center;
   text-align: center;
   transform: translateY(-16px);
@@ -476,7 +477,7 @@
   letter-spacing: .17em;
 }
 .knowledge-hub-hero h1 {
-  max-width: 600px;
+  max-width: 740px;
   margin: 0;
   color: #26313b;
   font-family: 'Space Grotesk', sans-serif;
