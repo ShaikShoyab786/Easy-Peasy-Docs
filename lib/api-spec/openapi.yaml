@@ -149,6 +149,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /conversations/import-guest:
+    post:
+      operationId: importGuestConversation
+      tags: [conversations]
+      summary: Copy a guest conversation into the signed-in user's account
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuestConversationImportInput"
+      responses:
+        "201":
+          description: Guest conversation copied into the account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "400":
+          description: Invalid guest conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Conversation identifier is already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /conversations/{conversationId}:
     parameters:
       - name: conversationId
@@ -444,7 +482,40 @@ components:
           type: string
           minLength: 1
           maxLength: 6000
+        createIfMissing:
+          type: boolean
+          description: Create and save a new account conversation with its first completed turn if the identifier does not exist.
       required: [content]
+    GuestConversationImportMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 30000
+      required: [role, content]
+    GuestConversationImportInput:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/GuestConversationImportMessage"
+      required: [id, title, messages]
     GuestChatMessage:
       type: object
       additionalProperties: false
