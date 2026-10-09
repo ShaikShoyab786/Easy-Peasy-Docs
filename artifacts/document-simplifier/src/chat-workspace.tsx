@@ -98,6 +98,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [accountSelectedId, setAccountSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   const [guestSendingIds, setGuestSendingIds] = useState<string[]>([]);
   const [guestErrors, setGuestErrors] = useState<Record<string, string>>({});
   const [accountError, setAccountError] = useState("");
@@ -127,6 +129,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const isSending = isGuest ? guestSendingIds.includes(guestSelectedId) : sendTurn.isPending;
   const currentError = isGuest ? guestErrors[guestSelectedId] : accountError;
   const isEmpty = messages.length === 0;
+  const sidebarExpanded = isMobileViewport ? mobileSidebarOpen : !desktopSidebarCollapsed;
 
   useEffect(() => {
     try {
@@ -135,6 +138,17 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       // Keep the in-memory history usable when browser storage is unavailable.
     }
   }, [guestConversations]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => {
+      setIsMobileViewport(media.matches);
+      setMobileSidebarOpen(false);
+    };
+    updateViewport();
+    media.addEventListener("change", updateViewport);
+    return () => media.removeEventListener("change", updateViewport);
+  }, []);
 
   useEffect(() => {
     if (isGuest && !guestConversations.some((chat) => chat.id === guestSelectedId)) {
@@ -180,6 +194,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     setDraft("");
     setMobileSidebarOpen(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function toggleSidebar() {
+    if (isMobileViewport) {
+      setMobileSidebarOpen((open) => !open);
+      return;
+    }
+    setDesktopSidebarCollapsed((collapsed) => !collapsed);
   }
 
   async function removeChat(chat: LocalConversation | Conversation) {
@@ -292,8 +314,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const activeTitle = isGuest ? activeGuest?.title : activeAccount?.title;
 
   return (
-    <main className={`chat-app ${mobileSidebarOpen ? "sidebar-open" : ""}`}>
-      <aside className="chat-sidebar" aria-label="Chat navigation">
+    <main className={`chat-app ${mobileSidebarOpen ? "sidebar-open" : ""} ${desktopSidebarCollapsed && !isMobileViewport ? "sidebar-collapsed" : ""}`}>
+      <aside
+        id="chat-sidebar"
+        className="chat-sidebar"
+        aria-label="Chat navigation"
+        aria-hidden={!sidebarExpanded}
+        inert={!sidebarExpanded}
+      >
         <div className="chat-brand-row">
           <button type="button" className="chat-brand" onClick={makeNewChat} aria-label="Easy Peasy Docs home" data-testid="button-brand-home">
             <span className="chat-brand-icon"><Sparkles size={17} strokeWidth={1.7} /></span>
@@ -344,7 +372,19 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
       <section className="chat-main" aria-label="Conversation">
         <header className="chat-topbar">
-          <button type="button" className="mobile-menu-button" onClick={() => setMobileSidebarOpen(true)} aria-label="Open sidebar" data-testid="button-open-sidebar"><Menu size={19} /></button>
+          <button
+            type="button"
+            className="sidebar-toggle-button"
+            onClick={toggleSidebar}
+            aria-label={isMobileViewport
+              ? mobileSidebarOpen ? "Close chat navigation" : "Open chat navigation"
+              : desktopSidebarCollapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}
+            aria-controls="chat-sidebar"
+            aria-expanded={sidebarExpanded}
+            data-testid="button-toggle-sidebar"
+          >
+            <Menu size={19} />
+          </button>
           <div className="chat-top-title">
             <span className="chat-presence"><span /> Easy Peasy</span>
             <span className="top-title-divider">/</span>
@@ -408,7 +448,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               onKeyDown={onComposerKeyDown}
               rows={1}
               maxLength={MAX_MESSAGE_CHARS}
-              placeholder="Message Easy Peasy…"
+              placeholder="Message Easy Peasy..."
               aria-label="Write a message"
               disabled={isSending || (!isGuest && !activeAccount)}
               data-testid="input-chat-message"
@@ -420,7 +460,6 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               </button>
             </div>
           </form>
-          <p className="composer-caption">A conversation, in your own words.</p>
         </div>
       </section>
     </main>
