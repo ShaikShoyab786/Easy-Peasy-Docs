@@ -1020,6 +1020,74 @@ function inlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
+type MarkdownTableAlignment = "left" | "center" | "right";
+
+function splitMarkdownTableRow(line: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let codeDelimiter = "";
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === "\\" && line[index + 1] === "|") {
+      cell += "|";
+      index += 1;
+      continue;
+    }
+    if (character === "`") {
+      let end = index + 1;
+      while (line[end] === "`") end += 1;
+      const delimiter = line.slice(index, end);
+      cell += delimiter;
+      if (!codeDelimiter) codeDelimiter = delimiter;
+      else if (codeDelimiter === delimiter) codeDelimiter = "";
+      index = end - 1;
+      continue;
+    }
+    if (character === "|" && !codeDelimiter) {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    cell += character;
+  }
+  cells.push(cell.trim());
+
+  if (line.trimStart().startsWith("|") && cells[0] === "") cells.shift();
+  if (line.trimEnd().endsWith("|") && cells.at(-1) === "") cells.pop();
+  return cells;
+}
+
+function parseMarkdownTable(lines: string[], startIndex: number) {
+  const headerLine = lines[startIndex];
+  const delimiterLine = lines[startIndex + 1];
+  if (!headerLine?.includes("|") || !delimiterLine?.includes("|")) return null;
+
+  const headers = splitMarkdownTableRow(headerLine);
+  const delimiters = splitMarkdownTableRow(delimiterLine);
+  if (
+    headers.length < 2 ||
+    headers.length !== delimiters.length ||
+    !delimiters.every((cell) => /^:?-{3,}:?$/.test(cell))
+  ) {
+    return null;
+  }
+
+  const alignments: MarkdownTableAlignment[] = delimiters.map((cell) => {
+    if (cell.startsWith(":") && cell.endsWith(":")) return "center";
+    return cell.endsWith(":") ? "right" : "left";
+  });
+  const rows: string[][] = [];
+  let nextIndex = startIndex + 2;
+  while (nextIndex < lines.length && lines[nextIndex].trim() && lines[nextIndex].includes("|")) {
+    const cells = splitMarkdownTableRow(lines[nextIndex]);
+    rows.push(headers.map((_header, cellIndex) => cells[cellIndex] ?? ""));
+    nextIndex += 1;
+  }
+
+  return { headers, alignments, rows, nextIndex };
+}
+
 function SafeMarkdown({ content }: { content: string }) {
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
@@ -1037,16 +1105,64 @@ function SafeMarkdown({ content }: { content: string }) {
     blocks.push(<ListTag key={`list-${blocks.length}`}>{list.items.map((item, index) => <li key={index}>{inlineMarkdown(item, `list-${blocks.length}-${index}`)}</li>)}</ListTag>);
     list = null;
   };
-  lines.forEach((line) => {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const table = parseMarkdownTable(lines, lineIndex);
+    if (table) {
+      flushParagraph();
+      flushList();
+      const tableKey = `table-${blocks.length}`;
+      blocks.push(
+        <div className="safe-markdown-table-wrap" key={tableKey} data-testid="markdown-table-wrap">
+          <table className="safe-markdown-table" data-testid="markdown-table">
+            <thead>
+              <tr>
+                {table.headers.map((cell, cellIndex) => (
+                  <th
+                    key={cellIndex}
+                    scope="col"
+                    style={{ textAlign: table.alignments[cellIndex] }}
+                  >
+                    {inlineMarkdown(cell, `${tableKey}-header-${cellIndex}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {row.map((cell, cellIndex) => (
+                    <td
+                      key={cellIndex}
+                      style={{ textAlign: table.alignments[cellIndex] }}
+                    >
+                      {inlineMarkdown(cell, `${tableKey}-row-${rowIndex}-${cellIndex}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      lineIndex = table.nextIndex - 1;
+      continue;
+    }
+
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
     const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (!line.trim()) { flushParagraph(); flushList(); return; }
     if (heading) {
       flushParagraph(); flushList();
       const Heading = `h${heading[1].length}` as "h1" | "h2" | "h3";
       blocks.push(<Heading key={`h-${blocks.length}`}>{inlineMarkdown(heading[2], `h-${blocks.length}`)}</Heading>);
-      return;
+      continue;
     }
     if (bullet || ordered) {
       flushParagraph();
@@ -1054,11 +1170,11 @@ function SafeMarkdown({ content }: { content: string }) {
       const item = (bullet ?? ordered)![1];
       if (!list || list.ordered !== isOrdered) { flushList(); list = { ordered: isOrdered, items: [] }; }
       list.items.push(item);
-      return;
+      continue;
     }
     flushList();
     paragraph.push(line);
-  });
+  }
   flushParagraph();
   flushList();
   return <div className="safe-markdown">{blocks}</div>;

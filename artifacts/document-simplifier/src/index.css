@@ -226,6 +226,12 @@
 .safe-markdown strong { color: #2b363d; font-weight: 700; }
 .safe-markdown em { font-style: italic; }
 .safe-markdown code { border: 1px solid #e7e7dc; border-radius: 5px; background: #f1f1e9; padding: .1em .32em; font-family: 'DM Mono', monospace; font-size: .9em; }
+.safe-markdown-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid #e4e8df; border-radius: 11px; background: #fff; }
+.safe-markdown-table { width: 100%; min-width: max-content; border-collapse: collapse; font-size: .92em; line-height: 1.55; }
+.safe-markdown-table th,.safe-markdown-table td { min-width: 8.5rem; border-bottom: 1px solid #e9ece7; padding: 10px 13px; vertical-align: top; }
+.safe-markdown-table th { background: #f5f6f1; color: #2b363d; font-weight: 700; }
+.safe-markdown-table th + th,.safe-markdown-table td + td { border-left: 1px solid #e9ece7; }
+.safe-markdown-table tbody tr:last-child td { border-bottom: 0; }
 .assistant-loading { display: flex; align-items: center; gap: 11px; }
 .thinking-indicator { display: flex; align-items: center; gap: 4px; color: #899486; font-size: 11px; }
 .thinking-indicator i { width: 4px; height: 4px; border-radius: 50%; background: #8ea17e; animation: dotPulse .9s ease-in-out infinite alternate; }

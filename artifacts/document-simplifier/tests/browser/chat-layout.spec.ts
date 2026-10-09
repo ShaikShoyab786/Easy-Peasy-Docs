@@ -123,6 +123,37 @@ for (const mode of ["guest", "account"] as const) {
   });
 }
 
+test("assistant Markdown tables render as semantic, horizontally scrollable tables", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=guest&table=1");
+  const message = page.getByTestId("content-message-assistant-1");
+  const table = message.getByTestId("markdown-table");
+  const tableWrap = message.getByTestId("markdown-table-wrap");
+
+  await expect(table).toBeVisible();
+  await expect(table.locator("thead th")).toHaveText([
+    "Particular",
+    "Manufacturing Sector",
+    "Knowledge Economy (IT/AI/etc.)",
+  ]);
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await expect(table.locator("tbody tr").nth(0).locator("td").nth(1).locator("strong"))
+    .toHaveText("Up to ₹75 Lakh");
+  await expect(table.locator("tbody tr").nth(1).locator("td").nth(1).locator("code"))
+    .toHaveText("input|output");
+  await expect(table.locator("tbody tr").nth(1).locator("td").nth(2))
+    .toHaveText("left|right");
+  await expect(table.locator("thead th").nth(1)).toHaveCSS("text-align", "center");
+  await expect(message.locator("p")).not.toContainText("| Particular |");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const dimensions = await tableWrap.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeGreaterThan(dimensions.clientWidth);
+  await expect(tableWrap).toHaveCSS("overflow-x", "auto");
+});
+
 test("sidebar history expands without moving when the conversation scrolls", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 580 });
   await page.goto("/tests/chat-layout.fixture.html?mode=guest&history=12");

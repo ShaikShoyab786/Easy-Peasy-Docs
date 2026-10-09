@@ -5,6 +5,7 @@ import { ChatWorkspace } from "../src/chat-workspace";
 import "../src/index.css";
 
 const accountConversationId = "33333333-3333-4333-8333-333333333333";
+const params = new URLSearchParams(window.location.search);
 const sampleConversation = {
   id: accountConversationId,
   title: "A clear explanation",
@@ -23,7 +24,16 @@ const sampleMessages = [
     id: "55555555-5555-4555-8555-555555555555",
     conversationId: accountConversationId,
     role: "assistant",
-    content: "Planets follow a clear path: **gravity** keeps them moving around the Sun.",
+    content: params.get("table") === "1"
+      ? [
+          "**Simple Table Summary of CMEP Scheme**",
+          "",
+          "| Particular | Manufacturing Sector | Knowledge Economy (IT/AI/etc.) |",
+          "| :--- | :---: | ---: |",
+          "| Maximum Project Cost | **Up to ₹75 Lakh** | Up to ₹50 Lakh |",
+          "| Example | `input|output` | left\\|right |",
+        ].join("\n")
+      : "Planets follow a clear path: **gravity** keeps them moving around the Sun.",
     createdAt: "2026-10-08T12:02:00.000Z",
   },
 ];
@@ -196,7 +206,6 @@ window.fetch = (input, init) => {
 const mode = new URLSearchParams(window.location.search).get("mode") === "account"
   ? "account"
   : "guest";
-const params = new URLSearchParams(window.location.search);
 const historyCount = Number(params.get("history") ?? "0");
 if (mode === "guest" && params.get("empty") !== "1") {
   const guestItems = historyCount > 1
