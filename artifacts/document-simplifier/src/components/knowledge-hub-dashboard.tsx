@@ -37,6 +37,14 @@ const ACCEPTED_EXTENSIONS = [".pdf", ".txt", ".csv"];
 
 type UploadStage = "idle" | "requesting" | "uploading" | "completing";
 type Notice = { kind: "success" | "error"; text: string } | null;
+type SearchResultCountBucket = "0" | "1" | "2_to_5" | "6_plus";
+
+function getSearchResultCountBucket(resultCount: number): SearchResultCountBucket {
+  if (resultCount === 0) return "0";
+  if (resultCount === 1) return "1";
+  if (resultCount <= 5) return "2_to_5";
+  return "6_plus";
+}
 
 function formatBytes(byteSize: number) {
   if (byteSize < 1024 * 1024) return `${Math.max(1, Math.round(byteSize / 1024))} KB`;
@@ -99,6 +107,7 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
   const [progress, setProgress] = useState(0);
   const [uploadError, setUploadError] = useState("");
   const [search, setSearch] = useState("");
+  const searchSessionRef = useRef<{ query: string; hasQuery: boolean } | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [busyDocumentId, setBusyDocumentId] = useState<string | null>(null);
 
@@ -110,6 +119,25 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
     return documents.filter((document) => document.fileName.toLowerCase().includes(term));
   }, [documents, search]);
   const isUploading = stage !== "idle";
+
+  const completeSearchSession = () => {
+    const session = searchSessionRef.current;
+    if (!session?.hasQuery) return;
+
+    const term = session.query.trim().toLowerCase();
+    session.hasQuery = false;
+    if (!term) return;
+
+    const resultCount = documents.filter((document) => document.fileName.toLowerCase().includes(term)).length;
+    trackEvent("knowledge_hub_search_completed", {
+      result_count_bucket: getSearchResultCountBucket(resultCount),
+    });
+  };
+
+  const clearSearch = () => {
+    completeSearchSession();
+    setSearch("");
+  };
 
   const openUpload = () => {
     if (isGuest) {
@@ -344,11 +372,31 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
                     type="search"
                     placeholder="Search documents"
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onFocus={() => {
+                      searchSessionRef.current = { query: "", hasQuery: false };
+                    }}
+                    onChange={(event) => {
+                      const query = event.target.value;
+                      const session = searchSessionRef.current ?? { query: "", hasQuery: false };
+                      searchSessionRef.current = session;
+                      if (!query.trim()) {
+                        completeSearchSession();
+                        session.query = "";
+                        session.hasQuery = false;
+                      } else {
+                        session.query = query;
+                        session.hasQuery = true;
+                      }
+                      setSearch(query);
+                    }}
+                    onBlur={completeSearchSession}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") completeSearchSession();
+                    }}
                     aria-label="Search documents"
                     data-testid="input-search-documents"
                   />
-                  {search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search" data-testid="button-clear-search"><X size={14} /></button>}
+                  {search && <button type="button" onClick={clearSearch} aria-label="Clear search" data-testid="button-clear-search"><X size={14} /></button>}
                 </label>
               </div>
               <div className="kh-table-wrap">
@@ -387,7 +435,7 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
                   <div className="kh-no-results" data-testid="state-no-search-results">
                     <Search size={19} />
                     <p>No documents match “{search}”</p>
-                    <button type="button" onClick={() => setSearch("")} data-testid="button-reset-search">Clear search</button>
+                    <button type="button" onClick={clearSearch} data-testid="button-reset-search">Clear search</button>
                   </div>
                 )}
               </div>

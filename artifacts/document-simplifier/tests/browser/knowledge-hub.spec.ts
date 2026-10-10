@@ -62,13 +62,24 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   await expect(page.getByTestId(`row-document-${documentId}`)).toBeVisible();
   await page.getByTestId("input-search-documents").fill("operations");
   await expect(page.getByTestId(`row-document-${documentId}`)).toBeVisible();
+  await page.getByTestId("input-search-documents").press("Enter");
   await page.getByTestId("input-search-documents").fill("missing");
   await expect(page.getByTestId("state-no-search-results")).toBeVisible();
   await page.getByTestId("button-clear-search").click();
+  const searchEvents = await capturedAnalyticsEvents(page);
+  expect(searchEvents).toEqual([
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "1" } },
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "0" } },
+  ]);
+  expect(JSON.stringify(searchEvents)).not.toContain("operations");
+  expect(JSON.stringify(searchEvents)).not.toContain("missing");
+  expect(JSON.stringify(searchEvents)).not.toContain("Operations policy.pdf");
 
   await page.getByTestId(`button-pin-document-${documentId}`).click();
   await expect(page.getByTestId(`card-pinned-document-${documentId}`)).toBeVisible();
   expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "1" } },
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "0" } },
     { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
   ]);
 
@@ -77,6 +88,8 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   await expect(page.getByTestId("chip-attachment-0")).toContainText("Operations policy.pdf");
   await expect(page.getByTestId("input-chat-message")).toHaveValue("Summarize and simplify the attached file.");
   expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "1" } },
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "0" } },
     { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
     { name: "knowledge_hub_view_chat_opened", data: { file_type: "pdf" } },
   ]);
@@ -86,10 +99,21 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   await page.getByTestId(`button-delete-document-${documentId}`).click();
   await expect(page.getByText("No documents in your hub yet. Upload your first policy or report to get started.")).toBeVisible();
   expect(await capturedAnalyticsEvents(page)).toEqual([
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "1" } },
+    { name: "knowledge_hub_search_completed", data: { result_count_bucket: "0" } },
     { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
     { name: "knowledge_hub_view_chat_opened", data: { file_type: "pdf" } },
     { name: "knowledge_hub_document_deleted", data: { file_type: "pdf" } },
   ]);
+});
+
+test("Knowledge Hub document search still works when analytics is unavailable", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId("input-search-documents").fill("operations");
+  await expect(page.getByTestId("row-document-a3333333-3333-4333-8333-333333333333")).toBeVisible();
+  await page.getByTestId("input-search-documents").fill("missing");
+  await expect(page.getByTestId("state-no-search-results")).toBeVisible();
 });
 
 test("account Knowledge Hub completes direct PDF, TXT, and CSV upload flow", async ({ page }) => {
