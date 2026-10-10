@@ -7,6 +7,7 @@ import {
   useImportGuestConversation,
   useListConversationMessages,
   useListConversations,
+  useOpenKnowledgeDocumentChat,
   useRenameConversation,
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, KnowledgeDocument, Message } from "@workspace/api-client-react";
@@ -181,6 +182,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const deleteConversation = useDeleteConversation();
   const renameConversation = useRenameConversation();
   const guestImportMutation = useImportGuestConversation();
+  const openKnowledgeDocumentChat = useOpenKnowledgeDocumentChat();
   const [guestConversations, setGuestConversations] = useState<LocalConversation[]>(() => {
     const stored = readLocalConversations();
     return stored.length ? stored : [newLocalConversation()];
@@ -909,6 +911,9 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   }
 
   async function startChatWithKnowledgeDocument(document: KnowledgeDocument) {
+    const session = await openKnowledgeDocumentChat.mutateAsync({
+      documentId: document.id,
+    });
     const content = await getKnowledgeDocumentContent(document.id, {
       responseType: "blob",
     });
@@ -918,7 +923,10 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     const file = new File([content], document.fileName, {
       type: document.contentType,
     });
-    makeNewChat();
+    await queryClient.invalidateQueries({
+      queryKey: getListConversationsQueryKey(),
+    });
+    selectChat(session.conversationId);
     setActiveKnowledgeDocument(document);
     setSelectedFiles([file]);
     setAttachmentError("");
@@ -1089,6 +1097,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               <div className="active-context-badge" data-testid="badge-active-document-context">
                 <FileText size={13} aria-hidden="true" />
                 <span><strong>Active Context:</strong> {activeKnowledgeDocument.fileName}</span>
+                <button
+                  type="button"
+                  className="active-context-hub"
+                  onClick={openKnowledgeHub}
+                  data-testid="button-active-context-knowledge-hub"
+                >
+                  Knowledge Hub
+                </button>
                 <button
                   type="button"
                   aria-label="Clear active document context"

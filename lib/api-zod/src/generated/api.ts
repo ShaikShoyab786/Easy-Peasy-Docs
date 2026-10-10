@@ -217,6 +217,7 @@ export const SendConversationChatTurnResponse = zod.object({
 export const ListKnowledgeDocumentsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
   "fileName": zod.string(),
   "contentType": zod.string(),
   "byteSize": zod.number().int(),
@@ -244,6 +245,7 @@ export const RequestKnowledgeDocumentUploadUrlBody = zod.object({
 export const RequestKnowledgeDocumentUploadUrlResponse = zod.object({
   "document": zod.object({
   "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
   "fileName": zod.string(),
   "contentType": zod.string(),
   "byteSize": zod.number().int(),
@@ -264,12 +266,25 @@ export const CompleteKnowledgeDocumentUploadParams = zod.object({
 
 export const CompleteKnowledgeDocumentUploadResponse = zod.object({
   "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
   "fileName": zod.string(),
   "contentType": zod.string(),
   "byteSize": zod.number().int(),
   "isPinned": zod.boolean(),
   "status": zod.enum(['pending_upload', 'ready']),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Return the dedicated chat session for a Knowledge Hub document
+ */
+export const OpenKnowledgeDocumentChatParams = zod.object({
+  "documentId": zod.coerce.string().uuid()
+})
+
+export const OpenKnowledgeDocumentChatResponse = zod.object({
+  "conversationId": zod.string().uuid()
 })
 
 
@@ -286,6 +301,7 @@ export const SetKnowledgeDocumentPinnedBody = zod.object({
 
 export const SetKnowledgeDocumentPinnedResponse = zod.object({
   "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
   "fileName": zod.string(),
   "contentType": zod.string(),
   "byteSize": zod.number().int(),

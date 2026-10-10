@@ -5,10 +5,17 @@ import { ChatWorkspace } from "../src/chat-workspace";
 import "../src/index.css";
 
 const accountConversationId = "33333333-3333-4333-8333-333333333333";
+const documentConversationId = "66666666-6666-4666-8666-666666666666";
 const params = new URLSearchParams(window.location.search);
 const sampleConversation = {
   id: accountConversationId,
   title: "A clear explanation",
+  createdAt: "2026-10-08T12:00:00.000Z",
+  updatedAt: "2026-10-08T12:00:00.000Z",
+};
+const documentConversation = {
+  id: documentConversationId,
+  title: "Chat about Operations policy.pdf",
   createdAt: "2026-10-08T12:00:00.000Z",
   updatedAt: "2026-10-08T12:00:00.000Z",
 };
@@ -55,6 +62,7 @@ const sampleMessages = [
 
 type KnowledgeFixtureDocument = {
   id: string;
+  conversationId: string | null;
   fileName: string;
   contentType: string;
   byteSize: number;
@@ -66,6 +74,7 @@ type KnowledgeFixtureDocument = {
 const sampleDocumentContent = "%PDF-1.7\nSample operations policy.\n";
 const sampleKnowledgeDocument: KnowledgeFixtureDocument = {
   id: "a3333333-3333-4333-8333-333333333333",
+  conversationId: documentConversationId,
   fileName: "Operations policy.pdf",
   contentType: "application/pdf",
   byteSize: new TextEncoder().encode(sampleDocumentContent).byteLength,
@@ -103,7 +112,9 @@ const nativeFetch = window.fetch.bind(window);
 const testWindow = window as Window & { __chatTestState?: ChatTestState };
 const testState: ChatTestState = { requests: [] };
 testWindow.__chatTestState = testState;
-let fixtureConversations = [sampleConversation];
+let fixtureConversations = params.get("documents") === "1"
+  ? [documentConversation, sampleConversation]
+  : [sampleConversation];
 let fixtureDocuments: KnowledgeFixtureDocument[] = params.get("documents") === "1"
   ? [sampleKnowledgeDocument]
   : [];
@@ -112,6 +123,22 @@ const fixtureDocumentBytes = new Map<string, Blob>([
 ]);
 const fixtureMessages = new Map<string, typeof sampleMessages>([
   [accountConversationId, sampleMessages],
+  [documentConversationId, [
+    {
+      id: "77777777-7777-4777-8777-777777777777",
+      conversationId: documentConversationId,
+      role: "user",
+      content: "What does the policy cover?",
+      createdAt: "2026-10-08T12:01:00.000Z",
+    },
+    {
+      id: "88888888-8888-4888-8888-888888888888",
+      conversationId: documentConversationId,
+      role: "assistant",
+      content: "The policy covers operational reimbursements.",
+      createdAt: "2026-10-08T12:02:00.000Z",
+    },
+  ]],
 ]);
 let generatedMessageId = 0;
 let generatedDocumentId = 0;
@@ -151,6 +178,15 @@ window.fetch = (input, init) => {
     return Promise.resolve(jsonResponse({ items: fixtureDocuments }));
   }
 
+  const documentChatMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/chat$/);
+  if (documentChatMatch && method === "POST") {
+    const document = fixtureDocuments.find((item) => item.id === documentChatMatch[1]);
+    if (!document?.conversationId) {
+      return Promise.resolve(jsonResponse({ error: "Document not found." }, 404));
+    }
+    return Promise.resolve(jsonResponse({ conversationId: document.conversationId }));
+  }
+
   if (pathname === "/api/knowledge-documents/uploads/request-url" && method === "POST") {
     const upload = body as { fileName?: string; byteSize?: number } | undefined;
     if (!upload?.fileName || !upload.byteSize) {
@@ -171,6 +207,7 @@ window.fetch = (input, init) => {
       byteSize: upload.byteSize,
       isPinned: false,
       status: "pending_upload",
+      conversationId: null,
       createdAt: new Date().toISOString(),
     };
     fixtureDocuments = [document, ...fixtureDocuments];
@@ -195,7 +232,7 @@ window.fetch = (input, init) => {
     if (!document || !fixtureDocumentBytes.has(document.id)) {
       return Promise.resolve(jsonResponse({ error: "Document upload not found." }, 404));
     }
-    const readyDocument = { ...document, status: "ready" as const };
+    const readyDocument = { ...document, status: "ready" as const, conversationId: documentConversationId };
     fixtureDocuments = fixtureDocuments.map((item) => item.id === document.id ? readyDocument : item);
     return Promise.resolve(jsonResponse(readyDocument));
   }

@@ -87,6 +87,9 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   await expect(page.getByTestId("page-knowledge-hub")).toHaveCount(0);
   await expect(page.getByTestId("chip-attachment-0")).toContainText("Operations policy.pdf");
   await expect(page.getByTestId("badge-active-document-context")).toContainText("Active Context: Operations policy.pdf");
+  await expect(page.getByTestId("button-active-context-knowledge-hub")).toBeVisible();
+  await expect(page.getByText("What does the policy cover?")).toBeVisible();
+  await expect(page.getByText("The policy covers operational reimbursements.")).toBeVisible();
   await expect(page.getByTestId("input-chat-message")).toHaveValue("");
   await expect(page.getByTestId("input-chat-message")).toHaveAttribute("placeholder", "Ask a question about Operations policy.pdf...");
   expect(await capturedAnalyticsEvents(page)).toEqual([
@@ -95,6 +98,14 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
     { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
     { name: "knowledge_hub_view_chat_opened", data: { file_type: "pdf" } },
   ]);
+  const documentChatRequest = await page.evaluate((id) => {
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string }[] };
+    }).__chatTestState?.requests ?? [];
+    return requests.find((request) =>
+      request.path === `/api/knowledge-documents/${id}/chat` && request.method === "POST");
+  }, documentId);
+  expect(documentChatRequest).toBeTruthy();
 
   const question = "What is the reimbursement limit?";
   await page.getByTestId("input-chat-message").fill(question);
@@ -105,7 +116,10 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
     const requests = (window as Window & {
       __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
     }).__chatTestState?.requests ?? [];
-    return requests.find((request) => request.path.endsWith("/chat") && request.method === "POST");
+    return requests.find((request) =>
+      request.path.startsWith("/api/conversations/") &&
+      request.path.endsWith("/chat") &&
+      request.method === "POST");
   });
   expect(chatRequest?.body).toMatchObject({
     content: question,
@@ -113,7 +127,7 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
     files: [{ name: "Operations policy.pdf", type: "application/pdf" }],
   });
 
-  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId("button-active-context-knowledge-hub").click();
   page.on("dialog", (dialog) => dialog.accept());
   await page.getByTestId(`button-delete-document-${documentId}`).click();
   await expect(page.getByText("No documents in your hub yet. Upload your first policy or report to get started.")).toBeVisible();

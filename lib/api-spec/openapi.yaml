@@ -501,6 +501,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /knowledge-documents/{documentId}/chat:
+    parameters:
+      - name: documentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: openKnowledgeDocumentChat
+      tags: [knowledge-documents]
+      summary: Return the dedicated chat session for a Knowledge Hub document
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "200":
+          description: Existing or newly initialized document chat session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentChatSession"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /knowledge-documents/{documentId}/pin:
     parameters:
       - name: documentId
@@ -704,6 +737,9 @@ components:
         id:
           type: string
           format: uuid
+        conversationId:
+          type: ["string", "null"]
+          format: uuid
         fileName:
           type: string
         contentType:
@@ -719,7 +755,14 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, fileName, contentType, byteSize, isPinned, status, createdAt]
+      required: [id, conversationId, fileName, contentType, byteSize, isPinned, status, createdAt]
+    KnowledgeDocumentChatSession:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+      required: [conversationId]
     KnowledgeDocumentList:
       type: object
       properties:

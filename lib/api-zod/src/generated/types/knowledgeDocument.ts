@@ -9,6 +9,8 @@ import type { KnowledgeDocumentStatus } from './knowledgeDocumentStatus';
 
 export interface KnowledgeDocument {
   id: string;
+  /** @nullable */
+  conversationId: string | null;
   fileName: string;
   contentType: string;
   byteSize: number;

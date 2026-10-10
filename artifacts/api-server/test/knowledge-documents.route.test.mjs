@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { Readable } from "node:stream";
 import { build } from "esbuild";
@@ -18,10 +19,16 @@ const mockModules = new Map([
       export const db = globalThis.__knowledgeDocumentsHarness.db;
       const column = (field) => ({ field });
       export const knowledgeDocumentsTable = {
+        name: "knowledge_documents",
         id: column("id"),
         ownerId: column("ownerId"),
         createdAt: column("createdAt"),
         status: column("status"),
+      };
+      export const conversationsTable = {
+        name: "chat_conversations",
+        id: column("id"),
+        ownerId: column("ownerId"),
       };
     `,
   ],
@@ -30,10 +37,16 @@ const mockModules = new Map([
     `
       const column = (field) => ({ field });
       export const knowledgeDocumentsTable = {
+        name: "knowledge_documents",
         id: column("id"),
         ownerId: column("ownerId"),
         createdAt: column("createdAt"),
         status: column("status"),
+      };
+      export const conversationsTable = {
+        name: "chat_conversations",
+        id: column("id"),
+        ownerId: column("ownerId"),
       };
     `,
   ],
@@ -51,6 +64,7 @@ const mockModules = new Map([
       import { z } from "zod/v4";
       const document = z.object({
         id: z.string().uuid(),
+        conversationId: z.string().uuid().nullable(),
         fileName: z.string(),
         contentType: z.string(),
         byteSize: z.number().int(),
@@ -62,6 +76,8 @@ const mockModules = new Map([
       export const CompleteKnowledgeDocumentUploadResponse = document;
       export const DeleteKnowledgeDocumentParams = z.object({ documentId: z.coerce.string().uuid() });
       export const GetKnowledgeDocumentContentParams = z.object({ documentId: z.coerce.string().uuid() });
+      export const OpenKnowledgeDocumentChatParams = z.object({ documentId: z.coerce.string().uuid() });
+      export const OpenKnowledgeDocumentChatResponse = z.object({ conversationId: z.string().uuid() });
       export const ListKnowledgeDocumentsResponse = z.object({ items: z.array(document) });
       export const RequestKnowledgeDocumentUploadUrlBody = z.object({
         fileName: z.string().min(1).max(255),
@@ -158,14 +174,18 @@ function matches(row, condition) {
 
 function createFakeDatabase() {
   const rows = new Map();
+  const conversations = new Map();
+  const tableRows = (table) => table.name === "chat_conversations" ? conversations : rows;
   return {
     rows,
+    conversations,
     select() {
       return {
-        from() {
+        from(table) {
+          const selectedRows = tableRows(table);
           return {
             where(condition) {
-              const results = () => [...rows.values()].filter((row) => matches(row, condition));
+              const results = () => [...selectedRows.values()].filter((row) => matches(row, condition));
               return Object.assign(Promise.resolve(results()), {
                 orderBy(order) {
                   const ordered = results();
@@ -186,25 +206,29 @@ function createFakeDatabase() {
     transaction(callback) {
       return callback(this);
     },
-    insert() {
+    insert(table) {
+      const insertedRows = tableRows(table);
       return {
         values(value) {
           return {
             returning() {
               const row = {
                 ...value,
+                conversationId: value.conversationId ?? null,
+                id: value.id ?? randomUUID(),
                 isPinned: value.isPinned ?? false,
                 createdAt: new Date(),
                 updatedAt: new Date(),
               };
-              rows.set(row.id, row);
+              insertedRows.set(row.id, row);
               return Promise.resolve([row]);
             },
           };
         },
       };
     },
-    update() {
+    update(table) {
+      const updatedRows = tableRows(table);
       return {
         set(values) {
           return {
@@ -212,10 +236,10 @@ function createFakeDatabase() {
               return {
                 returning() {
                   const updated = [];
-                  for (const [id, row] of rows) {
+                  for (const [id, row] of updatedRows) {
                     if (!matches(row, condition)) continue;
                     const next = { ...row, ...values };
-                    rows.set(id, next);
+                    updatedRows.set(id, next);
                     updated.push(next);
                   }
                   return Promise.resolve(updated);
@@ -226,11 +250,12 @@ function createFakeDatabase() {
         },
       };
     },
-    delete() {
+    delete(table) {
+      const deletedRows = tableRows(table);
       return {
         where(condition) {
-          for (const [id, row] of rows) {
-            if (matches(row, condition)) rows.delete(id);
+          for (const [id, row] of deletedRows) {
+            if (matches(row, condition)) deletedRows.delete(id);
           }
           return Promise.resolve();
         },
@@ -348,7 +373,20 @@ test("documents are isolated by account and support upload, pin, read, and delet
     method: "POST",
   });
   assert.equal(complete.status, 200);
-  assert.equal((await complete.json()).status, "ready");
+  const readyDocument = await complete.json();
+  assert.equal(readyDocument.status, "ready");
+  assert.ok(readyDocument.conversationId);
+  assert.equal(harness.db.conversations.size, 1);
+
+  const firstOpen = await api(`/knowledge-documents/${document.id}/chat`, {
+    method: "POST",
+  });
+  assert.equal((await firstOpen.json()).conversationId, readyDocument.conversationId);
+  const secondOpen = await api(`/knowledge-documents/${document.id}/chat`, {
+    method: "POST",
+  });
+  assert.equal((await secondOpen.json()).conversationId, readyDocument.conversationId);
+  assert.equal(harness.db.conversations.size, 1);
 
   const listed = await api("/knowledge-documents");
   assert.equal((await listed.json()).items.length, 1);

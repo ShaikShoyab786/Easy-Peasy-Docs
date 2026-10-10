@@ -7,9 +7,11 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
+import { conversationsTable } from "./conversations";
 
 export const knowledgeDocumentStatus = pgEnum("knowledge_document_status", [
   "pending_upload",
@@ -21,6 +23,10 @@ export const knowledgeDocumentsTable = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: text("owner_id").notNull(),
+    conversationId: uuid("conversation_id").references(
+      () => conversationsTable.id,
+      { onDelete: "set null" },
+    ),
     fileName: text("file_name").notNull(),
     contentType: text("content_type").notNull(),
     byteSize: integer("byte_size").notNull(),
@@ -45,6 +51,7 @@ export const knowledgeDocumentsTable = pgTable(
       table.isPinned,
       table.createdAt,
     ),
+    uniqueIndex("knowledge_documents_conversation_unique").on(table.conversationId),
   ],
 );
 

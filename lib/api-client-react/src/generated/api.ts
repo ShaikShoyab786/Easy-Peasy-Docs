@@ -36,6 +36,7 @@ import type {
   GuestConversationImportInput,
   HealthStatus,
   KnowledgeDocument,
+  KnowledgeDocumentChatSession,
   KnowledgeDocumentList,
   KnowledgeDocumentPinInput,
   KnowledgeDocumentUploadRequest,
@@ -1196,6 +1197,80 @@ export const useCompleteKnowledgeDocumentUpload = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getCompleteKnowledgeDocumentUploadMutationOptions(options));
+    }
+
+export const getOpenKnowledgeDocumentChatUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge-documents/${documentId}/chat`
+}
+
+/**
+ * @summary Return the dedicated chat session for a Knowledge Hub document
+ */
+export const openKnowledgeDocumentChat = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocumentChatSession> => {
+
+  return customFetch<KnowledgeDocumentChatSession>(getOpenKnowledgeDocumentChatUrl(documentId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getOpenKnowledgeDocumentChatMutationKey = () => ['openKnowledgeDocumentChat'] as const;
+
+export const getOpenKnowledgeDocumentChatMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openKnowledgeDocumentChat>>, TError,OpenKnowledgeDocumentChatMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof openKnowledgeDocumentChat>>, TError,OpenKnowledgeDocumentChatMutationVariables, TContext> => {
+
+const mutationKey = getOpenKnowledgeDocumentChatMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof openKnowledgeDocumentChat>>, OpenKnowledgeDocumentChatMutationVariables> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  openKnowledgeDocumentChat(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OpenKnowledgeDocumentChatMutationResult = NonNullable<Awaited<ReturnType<typeof openKnowledgeDocumentChat>>>
+
+    export type OpenKnowledgeDocumentChatMutationError = ErrorType<ApiError>
+    export type OpenKnowledgeDocumentChatMutationVariables = {documentId: string}
+
+    /**
+ * @summary Return the dedicated chat session for a Knowledge Hub document
+ */
+export const useOpenKnowledgeDocumentChat = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openKnowledgeDocumentChat>>, TError,OpenKnowledgeDocumentChatMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof openKnowledgeDocumentChat>>,
+        TError,
+        OpenKnowledgeDocumentChatMutationVariables,
+        TContext
+      > => {
+      return useMutation(getOpenKnowledgeDocumentChatMutationOptions(options));
     }
 
 export const getSetKnowledgeDocumentPinnedUrl = (documentId: string,) => {

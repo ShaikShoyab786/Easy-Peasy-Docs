@@ -66,12 +66,18 @@ export const KnowledgeDocumentStatus = {
 
 export interface KnowledgeDocument {
   id: string;
+  /** @nullable */
+  conversationId: string | null;
   fileName: string;
   contentType: string;
   byteSize: number;
   isPinned: boolean;
   status: KnowledgeDocumentStatus;
   createdAt: string;
+}
+
+export interface KnowledgeDocumentChatSession {
+  conversationId: string;
 }
 
 export interface KnowledgeDocumentList {

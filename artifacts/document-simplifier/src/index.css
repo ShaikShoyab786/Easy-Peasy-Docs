@@ -190,6 +190,7 @@
 .active-context-badge > span { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 .active-context-badge strong { font-weight: 700; }
 .active-context-badge button { display: grid; width: 20px; height: 20px; flex: none; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #74866d; }
+.active-context-badge .active-context-hub { width: auto; padding: 0 7px; border-radius: 999px; white-space: nowrap; }
 .active-context-badge button:hover:not(:disabled) { background: #e5eee1; color: #435a3d; }
 .active-context-badge button:disabled { cursor: not-allowed; opacity: .55; }
 .top-new-button,.sidebar-toggle-button { display: grid; width: 35px; height: 35px; flex: none; place-items: center; border: 1px solid #e2e6e9; border-radius: 10px; background: #fff; color: #4c5961; transition: background .15s, border-color .15s; }

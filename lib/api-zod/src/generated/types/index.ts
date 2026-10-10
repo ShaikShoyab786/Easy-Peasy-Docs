@@ -31,6 +31,7 @@ export * from './guestConversationImportMessage';
 export * from './guestConversationImportMessageRole';
 export * from './healthStatus';
 export * from './knowledgeDocument';
+export * from './knowledgeDocumentChatSession';
 export * from './knowledgeDocumentList';
 export * from './knowledgeDocumentPinInput';
 export * from './knowledgeDocumentStatus';

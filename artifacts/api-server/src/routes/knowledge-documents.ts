@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
-import { db, knowledgeDocumentsTable } from "@workspace/db";
+import { db, conversationsTable, knowledgeDocumentsTable } from "@workspace/db";
 import {
   CompleteKnowledgeDocumentUploadParams,
   CompleteKnowledgeDocumentUploadResponse,
   DeleteKnowledgeDocumentParams,
   GetKnowledgeDocumentContentParams,
+  OpenKnowledgeDocumentChatParams,
+  OpenKnowledgeDocumentChatResponse,
   ListKnowledgeDocumentsResponse,
   RequestKnowledgeDocumentUploadUrlBody,
   RequestKnowledgeDocumentUploadUrlResponse,
@@ -176,31 +178,39 @@ router.post(
           .for("update");
 
         if (!document) return { kind: "not_found" as const };
-        if (document.status === "ready") {
-          return { kind: "ready" as const, document };
+        if (document.status !== "ready") {
+          const file = await objectStorageService.getObjectEntityFile(
+            document.objectPath,
+          );
+          const [metadata] = await file.getMetadata();
+          const [uploadedBytes] = await file.download();
+          if (
+            uploadedBytes.byteLength !== document.byteSize ||
+            (metadata.contentType && metadata.contentType !== document.contentType) ||
+            !hasExpectedContent(document, uploadedBytes)
+          ) {
+            return { kind: "invalid" as const };
+          }
         }
 
-        const file = await objectStorageService.getObjectEntityFile(
-          document.objectPath,
-        );
-        const [metadata] = await file.getMetadata();
-        const [uploadedBytes] = await file.download();
-        if (
-          uploadedBytes.byteLength !== document.byteSize ||
-          (metadata.contentType && metadata.contentType !== document.contentType) ||
-          !hasExpectedContent(document, uploadedBytes)
-        ) {
-          return { kind: "invalid" as const };
+        let conversationId = document.conversationId;
+        if (!conversationId) {
+          const [conversation] = await tx
+            .insert(conversationsTable)
+            .values({
+              ownerId,
+              title: `Chat about ${document.fileName}`.slice(0, 120),
+            })
+            .returning();
+          conversationId = conversation.id;
         }
-
         const [readyDocument] = await tx
           .update(knowledgeDocumentsTable)
-          .set({ status: "ready", updatedAt: new Date() })
+          .set({ status: "ready", conversationId, updatedAt: new Date() })
           .where(
             and(
               eq(knowledgeDocumentsTable.id, document.id),
               eq(knowledgeDocumentsTable.ownerId, ownerId),
-              eq(knowledgeDocumentsTable.status, "pending_upload"),
             ),
           )
           .returning();
@@ -229,6 +239,78 @@ router.post(
       res.status(503).json({
         error: "The uploaded file could not be verified. Please try again.",
       });
+    }
+  },
+);
+
+router.post(
+  "/knowledge-documents/:documentId/chat",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const params = OpenKnowledgeDocumentChatParams.safeParse({
+      documentId: req.params.documentId,
+    });
+    if (!params.success) {
+      res.status(404).json({ error: "Document not found." });
+      return;
+    }
+
+    const ownerId = getAuthenticatedUserId(req);
+    try {
+      const conversationId = await db.transaction(async (tx) => {
+        const [document] = await tx
+          .select()
+          .from(knowledgeDocumentsTable)
+          .where(
+            and(
+              eq(knowledgeDocumentsTable.id, params.data.documentId),
+              eq(knowledgeDocumentsTable.ownerId, ownerId),
+              eq(knowledgeDocumentsTable.status, "ready"),
+            ),
+          )
+          .for("update");
+        if (!document) return null;
+
+        if (document.conversationId) {
+          const [conversation] = await tx
+            .select({ id: conversationsTable.id })
+            .from(conversationsTable)
+            .where(
+              and(
+                eq(conversationsTable.id, document.conversationId),
+                eq(conversationsTable.ownerId, ownerId),
+              ),
+            );
+          if (conversation) return conversation.id;
+        }
+
+        const [conversation] = await tx
+          .insert(conversationsTable)
+          .values({
+            ownerId,
+            title: `Chat about ${document.fileName}`.slice(0, 120),
+          })
+          .returning();
+        await tx
+          .update(knowledgeDocumentsTable)
+          .set({ conversationId: conversation.id, updatedAt: new Date() })
+          .where(
+            and(
+              eq(knowledgeDocumentsTable.id, document.id),
+              eq(knowledgeDocumentsTable.ownerId, ownerId),
+            ),
+          );
+        return conversation.id;
+      });
+
+      if (!conversationId) {
+        res.status(404).json({ error: "Document not found." });
+        return;
+      }
+      res.json(OpenKnowledgeDocumentChatResponse.parse({ conversationId }));
+    } catch (error) {
+      req.log.error({ err: error, documentId: params.data.documentId }, "Could not open document chat");
+      res.status(503).json({ error: "The document chat could not be opened." });
     }
   },
 );
