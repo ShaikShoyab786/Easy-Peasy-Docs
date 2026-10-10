@@ -19,6 +19,9 @@ export type AssistantHistoryMessage = {
   content: string;
 };
 
+const DOCUMENT_CONTEXT_ONLY_INSTRUCTION =
+  "Answer the user's question using only the attached document as your source. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the document does not contain the answer, say that it is not specified in the document. Do not guess.";
+
 export type GrokChatAttachment = {
   buffer: Uint8Array;
   filename: string;
@@ -143,8 +146,9 @@ export async function deleteGrokAttachments(
 function modelInput(
   history: AssistantHistoryMessage[],
   attachments: GrokInputAttachment[],
+  documentContextOnly = false,
 ): Array<{
-  role: AssistantHistoryMessage["role"];
+  role: AssistantHistoryMessage["role"] | "developer";
   content: string | Array<{ type: string; text?: string; file_id?: string; image_url?: string }>;
 }> {
   let latestUserIndex = -1;
@@ -155,7 +159,7 @@ function modelInput(
     }
   }
 
-  return history.map((message, index) =>
+  const messages = history.map((message, index) =>
     attachments.length > 0 && index === latestUserIndex
       ? {
           role: message.role,
@@ -166,6 +170,9 @@ function modelInput(
         }
       : message,
   );
+  return documentContextOnly
+    ? [{ role: "developer", content: DOCUMENT_CONTEXT_ONLY_INSTRUCTION }, ...messages]
+    : messages;
 }
 
 export function extractXaiErrorMessage(payload: unknown): string | undefined {
@@ -289,6 +296,7 @@ export async function generateGrokChatReply(
   apiKey: string,
   history: AssistantHistoryMessage[],
   attachments: GrokInputAttachment[] = [],
+  documentContextOnly = false,
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -323,7 +331,7 @@ export async function generateGrokChatReply(
       },
       body: JSON.stringify({
         model: discovery.model,
-        input: modelInput(history, attachments),
+        input: modelInput(history, attachments, documentContextOnly),
         store: false,
       }),
       signal: AbortSignal.timeout(60_000),
@@ -374,6 +382,7 @@ export async function streamGrokChatReply(
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
   attachments: GrokInputAttachment[] = [],
+  documentContextOnly = false,
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -409,7 +418,7 @@ export async function streamGrokChatReply(
       },
       body: JSON.stringify({
         model: discovery.model,
-        input: modelInput(history, attachments),
+        input: modelInput(history, attachments, documentContextOnly),
         store: false,
         stream: true,
       }),

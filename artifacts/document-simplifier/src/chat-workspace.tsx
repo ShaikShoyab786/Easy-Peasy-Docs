@@ -161,11 +161,13 @@ function accountChatRequestBody(
   content: string,
   createIfMissing: boolean,
   files: File[],
+  documentContextOnly = false,
 ) {
-  if (!files.length) return { content, createIfMissing };
+  if (!files.length) return { content, createIfMissing, documentContextOnly };
   const formData = new FormData();
   formData.append("content", content);
   formData.append("createIfMissing", String(createIfMissing));
+  formData.append("documentContextOnly", String(documentContextOnly));
   files.forEach((file) => formData.append("files", file, file.name));
   return formData;
 }
@@ -188,6 +190,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [accountDraft, setAccountDraft] = useState<Conversation | null>(null);
   const [draft, setDraft] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [activeKnowledgeDocument, setActiveKnowledgeDocument] = useState<KnowledgeDocument | null>(null);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachmentError, setAttachmentError] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -211,6 +214,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     reply: string;
     status: "sending" | "failed";
     createIfMissing: boolean;
+    documentContextOnly: boolean;
   } | null>(null);
   const [guestErrors, setGuestErrors] = useState<Record<string, string>>({});
   const [accountError, setAccountError] = useState("");
@@ -430,7 +434,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   }, [attachmentMenuOpen]);
 
   function addSelectedFiles(fileList: FileList | File[] | null, acceptedExtensions: string[]) {
-    if (!fileList?.length) return;
+    if (!fileList?.length || activeKnowledgeDocument) return;
     const newFiles = Array.from(fileList).filter((file) =>
       !selectedFiles.some((selected) =>
         selected.name === file.name &&
@@ -501,6 +505,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     setKnowledgeHubOpen(false);
     setWorkspaceError("");
     setAccountError("");
+    setActiveKnowledgeDocument(null);
     if (isGuest) {
       const next = newLocalConversation();
       setGuestConversations((items) => [next, ...items]);
@@ -637,6 +642,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     content: string,
     createIfMissing: boolean,
     attachments: File[],
+    documentContextOnly = false,
   ) {
     setAccountError("");
     const controller = new AbortController();
@@ -647,13 +653,14 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       reply: "",
       status: "sending",
       createIfMissing,
+      documentContextOnly,
     });
     let streamed = "";
     if (attachments.length) setUploadProgress(0);
     try {
       const response = await requestChatStream(
         `/api/conversations/${conversationId}/chat`,
-        accountChatRequestBody(content, createIfMissing, attachments),
+        accountChatRequestBody(content, createIfMissing, attachments, documentContextOnly),
         (delta) => {
           streamed += delta;
           setAccountPendingTurn((turn) =>
@@ -677,12 +684,12 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       if (accountSelectedIdRef.current === conversationId) {
         if (createIfMissing) setAccountDraft(null);
         setDraft("");
-        setSelectedFiles([]);
+        if (!documentContextOnly) setSelectedFiles([]);
         setAttachmentError("");
         autoDraftRef.current = null;
       }
       setAccountPendingTurn((turn) => turn?.conversationId === conversationId ? null : turn);
-      accountPendingAttachmentsRef.current.delete(conversationId);
+      if (!documentContextOnly) accountPendingAttachmentsRef.current.delete(conversationId);
       setLiveAnnouncement("Assistant response complete.");
     } catch (cause) {
       setAccountError(cause instanceof Error && cause.message
@@ -726,7 +733,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const content = draft.trim() || (selectedFiles.length
+    const content = draft.trim() || (activeKnowledgeDocument ? "" : selectedFiles.length
       ? selectedFiles.length > 1
         ? "Summarize and simplify these attachments."
         : "Summarize and simplify the attached file."
@@ -750,7 +757,13 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     setAccountError("");
     if (selectedFiles.length) accountPendingAttachmentsRef.current.set(activeAccount.id, selectedFiles);
     else accountPendingAttachmentsRef.current.delete(activeAccount.id);
-    void runAccountTurn(activeAccount.id, content, isAccountDraft, selectedFiles);
+    void runAccountTurn(
+      activeAccount.id,
+      content,
+      isAccountDraft,
+      selectedFiles,
+      Boolean(activeKnowledgeDocument),
+    );
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -797,7 +810,13 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           : chat));
       void sendGuest(activeGuest.id, nextMessages);
     } else if (activeAccount) {
-      void runAccountTurn(activeAccount.id, precedingUser.content, false, []);
+      void runAccountTurn(
+        activeAccount.id,
+        precedingUser.content,
+        false,
+        activeKnowledgeDocument ? selectedFiles : [],
+        Boolean(activeKnowledgeDocument),
+      );
     }
   }
 
@@ -856,6 +875,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   function selectChat(id: string) {
     setKnowledgeHubOpen(false);
+    setActiveKnowledgeDocument(null);
     if (isGuest) {
       guestSelectedIdRef.current = id;
       setGuestSelectedId(id);
@@ -876,6 +896,9 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   function openKnowledgeHub() {
     setKnowledgeHubOpen(true);
+    setActiveKnowledgeDocument(null);
+    setSelectedFiles([]);
+    accountPendingAttachmentsRef.current.delete(accountSelectedIdRef.current ?? "");
     setMobileSidebarOpen(false);
     setAttachmentMenuOpen(false);
   }
@@ -896,11 +919,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       type: document.contentType,
     });
     makeNewChat();
+    setActiveKnowledgeDocument(document);
     setSelectedFiles([file]);
     setAttachmentError("");
-    const prompt = "Summarize and simplify the attached file.";
-    autoDraftRef.current = prompt;
-    setDraft(prompt);
+    autoDraftRef.current = null;
+    setDraft("");
     trackEvent("knowledge_hub_view_chat_opened", {
       file_type: getKnowledgeHubFileType(document.fileName),
     });
@@ -1062,6 +1085,27 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
             <span className="chat-presence"><span /> Easy Peasy</span>
             <span className="top-title-divider">/</span>
             <span className="top-chat-title">{knowledgeHubOpen ? "Knowledge Hub" : activeTitle || "New chat"}</span>
+            {activeKnowledgeDocument && !knowledgeHubOpen && (
+              <div className="active-context-badge" data-testid="badge-active-document-context">
+                <FileText size={13} aria-hidden="true" />
+                <span><strong>Active Context:</strong> {activeKnowledgeDocument.fileName}</span>
+                <button
+                  type="button"
+                  aria-label="Clear active document context"
+                  onClick={() => {
+                    setActiveKnowledgeDocument(null);
+                    setSelectedFiles([]);
+                    accountPendingAttachmentsRef.current.delete(accountSelectedIdRef.current ?? "");
+                    setAccountPendingTurn(null);
+                    setAccountError("");
+                  }}
+                  disabled={isSending}
+                  data-testid="button-clear-document-context"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
           </div>
           <button type="button" className="top-new-button" onClick={makeNewChat} aria-label="Start a new chat" data-testid="button-new-chat-top"><Plus size={17} /></button>
         </header>
@@ -1224,6 +1268,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                   accountPendingTurn.content,
                   accountPendingTurn.createIfMissing,
                   accountPendingAttachmentsRef.current.get(accountPendingTurn.conversationId) ?? selectedFiles,
+                  accountPendingTurn.documentContextOnly,
                 )}
                 data-testid="button-retry-message"
               >Try again</button>
@@ -1277,7 +1322,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                       type="button"
                       aria-label={`Remove ${file.name}`}
                       onClick={() => removeSelectedFile(index)}
-                      disabled={isSending}
+                      disabled={isSending || Boolean(activeKnowledgeDocument)}
                       data-testid={`button-remove-attachment-${index}`}
                     >
                       <X size={13} />
@@ -1300,7 +1345,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               onPaste={handleComposerPaste}
               rows={1}
               maxLength={MAX_MESSAGE_CHARS}
-              placeholder="Message Easy Peasy..."
+              placeholder={activeKnowledgeDocument ? `Ask a question about ${activeKnowledgeDocument.fileName}...` : "Message Easy Peasy..."}
               aria-label="Write a message"
               disabled={isSending || (!isGuest && !activeAccount)}
               data-testid="input-chat-message"
@@ -1315,7 +1360,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                     aria-haspopup="true"
                     aria-expanded={attachmentMenuOpen}
                     onClick={() => setAttachmentMenuOpen((open) => !open)}
-                    disabled={isSending || (!isGuest && !activeAccount)}
+                    disabled={isSending || (!isGuest && !activeAccount) || Boolean(activeKnowledgeDocument)}
                     data-testid="button-open-attachments"
                   >
                     <Plus size={19} strokeWidth={1.9} />
@@ -1395,7 +1440,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                   <Square size={14} fill="currentColor" />
                 </button>
               ) : (
-                <button type="submit" disabled={(!draft.trim() && selectedFiles.length === 0) || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
+                <button type="submit" disabled={(!draft.trim() && (Boolean(activeKnowledgeDocument) || selectedFiles.length === 0)) || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
                   <ArrowUp size={18} strokeWidth={2.2} />
                 </button>
               )}

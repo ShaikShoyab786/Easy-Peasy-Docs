@@ -11,6 +11,7 @@ export * from './apiError';
 export * from './chatMessageInput';
 export * from './chatMessageMultipartInput';
 export * from './chatMessageMultipartInputCreateIfMissing';
+export * from './chatMessageMultipartInputDocumentContextOnly';
 export * from './chatStreamDelta';
 export * from './chatStreamDone';
 export * from './chatStreamError';

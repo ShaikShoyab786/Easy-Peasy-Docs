@@ -14,4 +14,6 @@ export interface ChatMessageInput {
   content: string;
   /** Create and save a new account conversation with its first completed turn if the identifier does not exist. */
   createIfMissing?: boolean;
+  /** Restrict the assistant to the single attached document as its source. */
+  documentContextOnly?: boolean;
 }

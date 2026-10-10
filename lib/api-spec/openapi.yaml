@@ -776,6 +776,9 @@ components:
         createIfMissing:
           type: boolean
           description: Create and save a new account conversation with its first completed turn if the identifier does not exist.
+        documentContextOnly:
+          type: boolean
+          description: Restrict the assistant to the single attached document as its source.
       required: [content]
     GuestConversationImportMessage:
       type: object
@@ -851,6 +854,9 @@ components:
           minLength: 1
           maxLength: 6000
         createIfMissing:
+          type: string
+          enum: ["true", "false"]
+        documentContextOnly:
           type: string
           enum: ["true", "false"]
         files:

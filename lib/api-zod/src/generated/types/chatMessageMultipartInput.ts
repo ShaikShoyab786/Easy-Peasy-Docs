@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ChatMessageMultipartInputCreateIfMissing } from './chatMessageMultipartInputCreateIfMissing';
+import type { ChatMessageMultipartInputDocumentContextOnly } from './chatMessageMultipartInputDocumentContextOnly';
 
 export interface ChatMessageMultipartInput {
   /**
@@ -14,6 +15,7 @@ export interface ChatMessageMultipartInput {
      */
   content: string;
   createIfMissing?: ChatMessageMultipartInputCreateIfMissing;
+  documentContextOnly?: ChatMessageMultipartInputDocumentContextOnly;
   /** @maxItems 3 */
   files: Blob[];
 }

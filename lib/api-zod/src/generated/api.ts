@@ -196,7 +196,8 @@ export const sendConversationChatTurnBodyContentMax = 6000;
 
 export const SendConversationChatTurnBody = zod.object({
   "content": zod.string().min(1).max(sendConversationChatTurnBodyContentMax),
-  "createIfMissing": zod.boolean().optional().describe('Create and save a new account conversation with its first completed turn if the identifier does not exist.')
+  "createIfMissing": zod.boolean().optional().describe('Create and save a new account conversation with its first completed turn if the identifier does not exist.'),
+  "documentContextOnly": zod.boolean().optional().describe('Restrict the assistant to the single attached document as its source.')
 })
 
 export const SendConversationChatTurnResponse = zod.object({

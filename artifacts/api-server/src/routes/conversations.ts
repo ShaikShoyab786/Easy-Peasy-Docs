@@ -419,11 +419,23 @@ router.post(
         res.status(400).json({ error: "The chat request is invalid." });
         return;
       }
+      const documentContextOnly = req.body?.documentContextOnly;
+      if (
+        documentContextOnly !== undefined &&
+        documentContextOnly !== "true" &&
+        documentContextOnly !== "false"
+      ) {
+        res.status(400).json({ error: "The chat request is invalid." });
+        return;
+      }
       requestBody = {
         content: req.body?.content,
         ...(createIfMissing === undefined
           ? {}
           : { createIfMissing: createIfMissing === "true" }),
+        ...(documentContextOnly === undefined
+          ? {}
+          : { documentContextOnly: documentContextOnly === "true" }),
       };
     }
 
@@ -445,6 +457,13 @@ router.post(
         return;
       }
       throw error;
+    }
+    const documentContextOnly = parsed.data.documentContextOnly === true;
+    if (documentContextOnly && attachments.length !== 1) {
+      res.status(400).json({
+        error: "Document-only chat requires exactly one attached document.",
+      });
+      return;
     }
 
     const ownerId = getAuthenticatedUserId(req);
@@ -511,6 +530,7 @@ router.post(
           },
           streamController.signal,
           grokAttachments.parts,
+          documentContextOnly,
         );
       } catch (error) {
         if (streamController.signal.aborted) {
@@ -569,6 +589,7 @@ router.post(
           apiKey,
           history,
           grokAttachments.parts,
+          documentContextOnly,
         );
       } catch (error) {
         if (error instanceof GrokChatError) {

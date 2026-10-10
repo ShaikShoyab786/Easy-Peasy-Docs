@@ -42,9 +42,9 @@ const parseMultipartFiles = multer({
   limits: {
     fileSize: MAX_CHAT_ATTACHMENT_FILE_BYTES,
     files: MAX_CHAT_ATTACHMENT_FILES,
-    fields: 2,
+    fields: 3,
     fieldSize: 256 * 1024,
-    parts: MAX_CHAT_ATTACHMENT_FILES + 2,
+    parts: MAX_CHAT_ATTACHMENT_FILES + 3,
   },
 }).array("files", MAX_CHAT_ATTACHMENT_FILES);
 

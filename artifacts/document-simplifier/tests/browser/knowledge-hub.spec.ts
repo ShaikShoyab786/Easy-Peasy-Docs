@@ -86,13 +86,32 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   await page.getByTestId(`button-view-chat-${documentId}`).click();
   await expect(page.getByTestId("page-knowledge-hub")).toHaveCount(0);
   await expect(page.getByTestId("chip-attachment-0")).toContainText("Operations policy.pdf");
-  await expect(page.getByTestId("input-chat-message")).toHaveValue("Summarize and simplify the attached file.");
+  await expect(page.getByTestId("badge-active-document-context")).toContainText("Active Context: Operations policy.pdf");
+  await expect(page.getByTestId("input-chat-message")).toHaveValue("");
+  await expect(page.getByTestId("input-chat-message")).toHaveAttribute("placeholder", "Ask a question about Operations policy.pdf...");
   expect(await capturedAnalyticsEvents(page)).toEqual([
     { name: "knowledge_hub_search_completed", data: { result_count_bucket: "1" } },
     { name: "knowledge_hub_search_completed", data: { result_count_bucket: "0" } },
     { name: "knowledge_hub_pin_changed", data: { file_type: "pdf", is_pinned: true } },
     { name: "knowledge_hub_view_chat_opened", data: { file_type: "pdf" } },
   ]);
+
+  const question = "What is the reimbursement limit?";
+  await page.getByTestId("input-chat-message").fill(question);
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByText(`A helpful reply to: ${question}`)).toBeVisible();
+  await expect(page.getByTestId("badge-active-document-context")).toBeVisible();
+  const chatRequest = await page.evaluate(() => {
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests ?? [];
+    return requests.find((request) => request.path.endsWith("/chat") && request.method === "POST");
+  });
+  expect(chatRequest?.body).toMatchObject({
+    content: question,
+    documentContextOnly: "true",
+    files: [{ name: "Operations policy.pdf", type: "application/pdf" }],
+  });
 
   await page.getByTestId("button-knowledge-hub").click();
   page.on("dialog", (dialog) => dialog.accept());

@@ -64,6 +64,7 @@ const mockModules = new Map([
       export const SendConversationChatTurnBody = z.object({
         content: z.string().min(1).max(6000),
         createIfMissing: z.boolean().optional(),
+        documentContextOnly: z.boolean().optional(),
       });
       export const SendGuestChatTurnBody = z.object({
         messages: z.array(z.object({
@@ -106,10 +107,11 @@ const mockModules = new Map([
       export async function deleteGrokAttachments() {
         return 0;
       }
-      export async function generateGrokChatReply(_apiKey, _history, attachments = []) {
+      export async function generateGrokChatReply(_apiKey, _history, attachments = [], documentContextOnly = false) {
         const model = globalThis.__conversationRouteHarness.model;
         model.receivedParts = attachments;
         model.receivedHistory = _history;
+        model.documentContextOnly = documentContextOnly;
         if (model.failure) {
           throw new GrokChatError(
             model.failure.message,
@@ -502,10 +504,11 @@ async function sendFirstTurn(id = draftId) {
   });
 }
 
-async function sendFirstTurnWithAttachments(files) {
+async function sendFirstTurnWithAttachments(files, documentContextOnly = false) {
   const form = new FormData();
   form.append("content", "Summarize the attached files.");
   form.append("createIfMissing", "true");
+  form.append("documentContextOnly", String(documentContextOnly));
   for (const file of files) {
     form.append(
       "files",
@@ -580,8 +583,9 @@ test("valid multipart chat forwards file bytes to Grok and persists only the mes
     },
   ]);
 
-  const result = await response.json();
-  assert.equal(response.status, 201);
+  const responseText = await response.clone().text();
+  assert.equal(response.status, 201, responseText);
+  const result = JSON.parse(responseText);
   assert.deepEqual(
     harness.model.receivedUploads.map(({ filename, mimeType, buffer }) => ({
       filename,
@@ -602,6 +606,26 @@ test("valid multipart chat forwards file bytes to Grok and persists only the mes
     ],
   );
   assert.equal(result.items.length, 2);
+});
+
+test("document-only chat requires one attachment and passes document scope to Grok", async () => {
+  resetDatabase();
+  process.env.XAI_API_KEY = "route-test-key";
+  harness.model = { reply: "The document does not specify that." };
+  const response = await sendFirstTurnWithAttachments([
+    {
+      filename: "policy.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Reimbursement limits are listed in section 4."),
+    },
+  ], true);
+
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.equal(harness.model.documentContextOnly, true);
+  assert.deepEqual(
+    harness.model.receivedParts,
+    [{ type: "input_file", file_id: "policy.txt" }],
+  );
 });
 
 test("guest multipart chat parses history and forwards attachments without persistence", async () => {
