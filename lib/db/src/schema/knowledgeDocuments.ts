@@ -27,6 +27,7 @@ export const knowledgeDocumentsTable = pgTable(
       () => conversationsTable.id,
       { onDelete: "set null" },
     ),
+    xaiFileId: text("xai_file_id"),
     fileName: text("file_name").notNull(),
     contentType: text("content_type").notNull(),
     byteSize: integer("byte_size").notNull(),

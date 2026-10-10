@@ -1,6 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { db, knowledgeDocumentsTable } from "@workspace/db";
 import {
   ImportGuestConversationBody,
   ImportGuestConversationResponse,
@@ -476,6 +476,22 @@ router.post(
       res.status(404).json({ error: "Conversation not found." });
       return;
     }
+    const knowledgeDocument = documentContextOnly
+      ? (await db
+          .select()
+          .from(knowledgeDocumentsTable)
+          .where(
+            and(
+              eq(knowledgeDocumentsTable.conversationId, conversationId),
+              eq(knowledgeDocumentsTable.ownerId, ownerId),
+              eq(knowledgeDocumentsTable.status, "ready"),
+            ),
+          ))[0]
+      : undefined;
+    if (documentContextOnly && !knowledgeDocument) {
+      res.status(404).json({ error: "The attached Knowledge Hub document was not found." });
+      return;
+    }
 
     const apiKey = process.env.XAI_API_KEY?.trim();
     if (!apiKey) {
@@ -503,6 +519,39 @@ router.post(
     ];
     const streamRequested = wantsChatStream(req.get("accept"));
     let assistantReply: string;
+    const persistentFileIds = new Set<string>();
+    const prepareTurnAttachments = async (signal?: AbortSignal) => {
+      if (documentContextOnly && knowledgeDocument?.xaiFileId) {
+        return {
+          parts: [{ type: "input_file" as const, file_id: knowledgeDocument.xaiFileId }],
+          uploadedFileIds: [],
+        };
+      }
+      const prepared = await prepareGrokAttachments(
+        apiKey,
+        attachments,
+        signal,
+        documentContextOnly,
+      );
+      if (documentContextOnly && knowledgeDocument) {
+        const fileId = prepared.uploadedFileIds[0];
+        if (!fileId) throw new Error("The document upload did not return a file ID.");
+        const [updated] = await db
+          .update(knowledgeDocumentsTable)
+          .set({ xaiFileId: fileId, updatedAt: new Date() })
+          .where(
+            and(
+              eq(knowledgeDocumentsTable.id, knowledgeDocument.id),
+              eq(knowledgeDocumentsTable.ownerId, ownerId),
+              eq(knowledgeDocumentsTable.status, "ready"),
+            ),
+          )
+          .returning({ id: knowledgeDocumentsTable.id });
+        if (!updated) throw new Error("The Knowledge Hub document is no longer available.");
+        persistentFileIds.add(fileId);
+      }
+      return prepared;
+    };
     let streamController: AbortController | undefined;
     if (streamRequested) {
       streamController = new AbortController();
@@ -515,11 +564,7 @@ router.post(
         | Awaited<ReturnType<typeof prepareGrokAttachments>>
         | undefined;
       try {
-        grokAttachments = await prepareGrokAttachments(
-          apiKey,
-          attachments,
-          streamController.signal,
-        );
+        grokAttachments = await prepareTurnAttachments(streamController.signal);
         assistantReply = await streamGrokChatReply(
           apiKey,
           history,
@@ -531,6 +576,9 @@ router.post(
           streamController.signal,
           grokAttachments.parts,
           documentContextOnly,
+          (_retryNumber, message) => {
+            writeChatStreamEvent(res, { type: "status", message }, 201);
+          },
         );
       } catch (error) {
         if (streamController.signal.aborted) {
@@ -566,7 +614,7 @@ router.post(
         if (grokAttachments) {
           const failedDeletes = await deleteGrokAttachments(
             apiKey,
-            grokAttachments.uploadedFileIds,
+            grokAttachments.uploadedFileIds.filter((id) => !persistentFileIds.has(id)),
           );
           if (failedDeletes > 0) {
             req.log.warn(
@@ -584,7 +632,7 @@ router.post(
         | Awaited<ReturnType<typeof prepareGrokAttachments>>
         | undefined;
       try {
-        grokAttachments = await prepareGrokAttachments(apiKey, attachments);
+        grokAttachments = await prepareTurnAttachments();
         assistantReply = await generateGrokChatReply(
           apiKey,
           history,
@@ -613,7 +661,7 @@ router.post(
         if (grokAttachments) {
           const failedDeletes = await deleteGrokAttachments(
             apiKey,
-            grokAttachments.uploadedFileIds,
+            grokAttachments.uploadedFileIds.filter((id) => !persistentFileIds.has(id)),
           );
           if (failedDeletes > 0) {
             req.log.warn(

@@ -24,6 +24,7 @@ const mockModules = new Map([
         ownerId: column("ownerId"),
         createdAt: column("createdAt"),
         status: column("status"),
+        xaiFileId: column("xaiFileId"),
       };
       export const conversationsTable = {
         name: "chat_conversations",
@@ -42,6 +43,7 @@ const mockModules = new Map([
         ownerId: column("ownerId"),
         createdAt: column("createdAt"),
         status: column("status"),
+        xaiFileId: column("xaiFileId"),
       };
       export const conversationsTable = {
         name: "chat_conversations",
@@ -56,6 +58,16 @@ const mockModules = new Map([
       export const eq = (column, value) => ({ column, value });
       export const and = (...conditions) => ({ conditions });
       export const desc = (column) => ({ column, direction: "desc" });
+    `,
+  ],
+  [
+    "../lib/xai",
+    `
+      export async function uploadGrokFile(_apiKey, attachment) {
+        const harness = globalThis.__knowledgeDocumentsHarness;
+        harness.uploads.push(attachment.filename);
+        return "xai-file-" + harness.uploads.length;
+      }
     `,
   ],
   [
@@ -215,6 +227,7 @@ function createFakeDatabase() {
               const row = {
                 ...value,
                 conversationId: value.conversationId ?? null,
+          xaiFileId: value.xaiFileId ?? null,
                 id: value.id ?? randomUUID(),
                 isPinned: value.isPinned ?? false,
                 createdAt: new Date(),
@@ -289,8 +302,10 @@ before(async () => {
       failDelete: false,
     },
     errors: [],
+    uploads: [],
   };
   globalThis.__knowledgeDocumentsHarness = harness;
+  process.env.XAI_API_KEY = "knowledge-documents-test-key";
   const { default: route } = await import(pathToFileURL(bundlePath).href);
 
   const app = express();
@@ -315,6 +330,7 @@ before(async () => {
 after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
   delete globalThis.__knowledgeDocumentsHarness;
+  delete process.env.XAI_API_KEY;
   await rm(bundleDir, { recursive: true, force: true });
 });
 
@@ -376,6 +392,8 @@ test("documents are isolated by account and support upload, pin, read, and delet
   const readyDocument = await complete.json();
   assert.equal(readyDocument.status, "ready");
   assert.ok(readyDocument.conversationId);
+  assert.equal(harness.db.rows.get(document.id).xaiFileId, "xai-file-1");
+  assert.deepEqual(harness.uploads, ["policy.pdf"]);
   assert.equal(harness.db.conversations.size, 1);
 
   const firstOpen = await api(`/knowledge-documents/${document.id}/chat`, {

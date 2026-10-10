@@ -25,6 +25,7 @@ import {
   getAuthenticatedUserId,
   requireAuth,
 } from "../middlewares/require-auth";
+import { uploadGrokFile } from "../lib/xai";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -164,6 +165,11 @@ router.post(
     }
 
     const ownerId = getAuthenticatedUserId(req);
+    const apiKey = process.env.XAI_API_KEY?.trim();
+    if (!apiKey) {
+      res.status(503).json({ error: "The document could not be prepared for chat." });
+      return;
+    }
     try {
       const result = await db.transaction(async (tx) => {
         const [document] = await tx
@@ -178,7 +184,8 @@ router.post(
           .for("update");
 
         if (!document) return { kind: "not_found" as const };
-        if (document.status !== "ready") {
+        let xaiFileId = document.xaiFileId;
+        if (document.status !== "ready" || !xaiFileId) {
           const file = await objectStorageService.getObjectEntityFile(
             document.objectPath,
           );
@@ -190,6 +197,13 @@ router.post(
             !hasExpectedContent(document, uploadedBytes)
           ) {
             return { kind: "invalid" as const };
+          }
+          if (!xaiFileId) {
+            xaiFileId = await uploadGrokFile(apiKey, {
+              buffer: uploadedBytes,
+              filename: document.fileName,
+              mimeType: document.contentType,
+            });
           }
         }
 
@@ -206,7 +220,7 @@ router.post(
         }
         const [readyDocument] = await tx
           .update(knowledgeDocumentsTable)
-          .set({ status: "ready", conversationId, updatedAt: new Date() })
+          .set({ status: "ready", conversationId, xaiFileId, updatedAt: new Date() })
           .where(
             and(
               eq(knowledgeDocumentsTable.id, document.id),

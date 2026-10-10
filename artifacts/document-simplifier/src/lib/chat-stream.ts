@@ -6,6 +6,7 @@ export type ChatStreamCompletion = {
 type ChatStreamEvent =
   | { type: "delta"; content: string }
   | { type: "done"; content: string; items?: unknown[] }
+  | { type: "status"; message: string }
   | { type: "error"; error: string };
 
 export async function requestChatStream(
@@ -14,10 +15,11 @@ export async function requestChatStream(
   onDelta: (delta: string) => void,
   signal: AbortSignal,
   onUploadProgress?: (percentage: number) => void,
+  onStatus?: (message: string) => void,
 ): Promise<ChatStreamCompletion> {
   const isMultipart = typeof FormData !== "undefined" && body instanceof FormData;
   if (isMultipart) {
-    return requestMultipartChatStream(url, body, onDelta, signal, onUploadProgress);
+    return requestMultipartChatStream(url, body, onDelta, signal, onUploadProgress, onStatus);
   }
 
   let response: Response;
@@ -85,6 +87,8 @@ export async function requestChatStream(
       completion = { content: event.content, items: event.items };
     } else if (event.type === "error" && typeof event.error === "string") {
       streamError = event.error;
+    } else if (event.type === "status" && typeof event.message === "string") {
+      onStatus?.(event.message);
     }
   };
 
@@ -138,6 +142,7 @@ function requestMultipartChatStream(
   onDelta: (delta: string) => void,
   signal: AbortSignal,
   onUploadProgress?: (percentage: number) => void,
+  onStatus?: (message: string) => void,
 ): Promise<ChatStreamCompletion> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -183,6 +188,8 @@ function requestMultipartChatStream(
         completion = { content: event.content, items: event.items };
       } else if (event.type === "error" && typeof event.error === "string") {
         streamError = event.error;
+      } else if (event.type === "status" && typeof event.message === "string") {
+        onStatus?.(event.message);
       }
     };
     const processLine = (line: string) => {

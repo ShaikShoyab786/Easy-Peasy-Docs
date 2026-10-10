@@ -19,6 +19,15 @@ const mockModules = new Map([
     "@workspace/db",
     `
       export const db = globalThis.__conversationRouteHarness.db;
+      const column = (table, field) => ({ table, field });
+      export const knowledgeDocumentsTable = {
+        name: "knowledge_documents",
+        id: column("knowledge_documents", "id"),
+        ownerId: column("knowledge_documents", "ownerId"),
+        conversationId: column("knowledge_documents", "conversationId"),
+        status: column("knowledge_documents", "status"),
+        xaiFileId: column("knowledge_documents", "xaiFileId"),
+      };
     `,
   ],
   [
@@ -45,6 +54,14 @@ const mockModules = new Map([
         id: column("documents", "id"),
         ownerId: column("documents", "ownerId"),
         conversationId: column("documents", "conversationId"),
+      };
+      export const knowledgeDocumentsTable = {
+        name: "knowledge_documents",
+        id: column("knowledge_documents", "id"),
+        ownerId: column("knowledge_documents", "ownerId"),
+        conversationId: column("knowledge_documents", "conversationId"),
+        status: column("knowledge_documents", "status"),
+        xaiFileId: column("knowledge_documents", "xaiFileId"),
       };
     `,
   ],
@@ -252,6 +269,15 @@ class SelectQuery {
         .map((message) => this.project(message));
     }
 
+    if (this.table.name === "knowledge_documents") {
+      return [...database.knowledgeDocuments.values()]
+        .filter((document) =>
+          conditions.every((condition) =>
+            condition?.column?.field === undefined ||
+            document[condition.column.field] === condition.value))
+        .map((document) => this.project(document));
+    }
+
     return [];
   }
 
@@ -346,12 +372,22 @@ class UpdateQuery {
     const id = condition?.column?.field === "id" ? condition.value : undefined;
     const conversation = this.session.database.conversations.get(id);
     if (conversation) Object.assign(conversation, this.valuesToUpdate);
+    if (this.table.name === "knowledge_documents") {
+      const conditions = condition?.conditions ?? [condition];
+      for (const document of this.session.database.knowledgeDocuments.values()) {
+        const matches = conditions.every((nested) =>
+          nested?.column?.field === undefined ||
+          document[nested.column.field] === nested.value);
+        if (matches) Object.assign(document, this.valuesToUpdate);
+      }
+    }
   }
 }
 
 function createFakeDatabase() {
   const database = {
     conversations: new Map(),
+    knowledgeDocuments: new Map(),
     messages: [],
     messageSequence: 0,
     transactionAttempts: 0,
@@ -362,6 +398,7 @@ function createFakeDatabase() {
   return Object.assign(session, {
     reset(failAt = null) {
       database.conversations.clear();
+      database.knowledgeDocuments.clear();
       database.messages = [];
       database.messageSequence = 0;
       database.transactionAttempts = 0;
@@ -611,6 +648,13 @@ test("valid multipart chat forwards file bytes to Grok and persists only the mes
 test("document-only chat requires one attachment and passes document scope to Grok", async () => {
   resetDatabase();
   process.env.XAI_API_KEY = "route-test-key";
+  harness.db.state.knowledgeDocuments.set("document-1", {
+    id: "document-1",
+    ownerId,
+    conversationId: draftId,
+    status: "ready",
+    xaiFileId: "xai-saved-file-id",
+  });
   harness.model = { reply: "The document does not specify that." };
   const response = await sendFirstTurnWithAttachments([
     {
@@ -624,8 +668,9 @@ test("document-only chat requires one attachment and passes document scope to Gr
   assert.equal(harness.model.documentContextOnly, true);
   assert.deepEqual(
     harness.model.receivedParts,
-    [{ type: "input_file", file_id: "policy.txt" }],
+    [{ type: "input_file", file_id: "xai-saved-file-id" }],
   );
+  assert.equal(harness.model.receivedUploads, undefined);
 });
 
 test("guest multipart chat parses history and forwards attachments without persistence", async () => {

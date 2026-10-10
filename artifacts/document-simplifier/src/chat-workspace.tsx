@@ -672,6 +672,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         },
         controller.signal,
         setUploadProgress,
+        (message) => setAccountError(message),
       );
       if (!Array.isArray(response.items) || response.items.length < 2) {
         throw new Error("The completed reply could not be loaded. Please try again.");
@@ -691,6 +692,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         autoDraftRef.current = null;
       }
       setAccountPendingTurn((turn) => turn?.conversationId === conversationId ? null : turn);
+      setAccountError("");
       if (!documentContextOnly) accountPendingAttachmentsRef.current.delete(conversationId);
       setLiveAnnouncement("Assistant response complete.");
     } catch (cause) {

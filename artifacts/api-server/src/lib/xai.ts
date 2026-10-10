@@ -32,6 +32,10 @@ export type GrokInputAttachment =
   | { type: "input_file"; file_id: string }
   | { type: "input_image"; image_url: string };
 
+const CAPACITY_RETRY_DELAYS_MS = [500, 1_000, 2_000] as const;
+const CAPACITY_RETRY_MESSAGE =
+  "xAI servers are experiencing high load. Retrying in a moment...";
+
 export class GrokChatError extends Error {
   constructor(
     message: string,
@@ -47,6 +51,7 @@ export async function prepareGrokAttachments(
   apiKey: string,
   attachments: GrokChatAttachment[],
   signal?: AbortSignal,
+  keepFilesPermanently = false,
 ): Promise<{ parts: GrokInputAttachment[]; uploadedFileIds: string[] }> {
   const parts: GrokInputAttachment[] = [];
   const uploadedFileIds: string[] = [];
@@ -62,8 +67,8 @@ export async function prepareGrokAttachments(
       }
 
       const form = new FormData();
-      // xAI requires expires_after to precede the file field in multipart uploads.
-      form.append("expires_after", "3600");
+      // Omit expires_after for Knowledge Hub files so xAI retains them permanently.
+      if (!keepFilesPermanently) form.append("expires_after", "3600");
       form.append("purpose", "assistants");
       form.append(
         "file",
@@ -124,6 +129,22 @@ export async function prepareGrokAttachments(
   return { parts, uploadedFileIds };
 }
 
+export async function uploadGrokFile(
+  apiKey: string,
+  attachment: GrokChatAttachment,
+  signal?: AbortSignal,
+): Promise<string> {
+  const uploaded = await prepareGrokAttachments(apiKey, [attachment], signal, true);
+  const fileId = uploaded.uploadedFileIds[0];
+  if (!fileId) {
+    throw new GrokChatError(
+      "The assistant returned an invalid attachment reference. Please try again.",
+      502,
+    );
+  }
+  return fileId;
+}
+
 export async function deleteGrokAttachments(
   apiKey: string,
   fileIds: string[],
@@ -173,6 +194,78 @@ function modelInput(
   return documentContextOnly
     ? [{ role: "developer", content: DOCUMENT_CONTEXT_ONLY_INSTRUCTION }, ...messages]
     : messages;
+}
+
+function isCapacityError(status: number, payload: unknown): boolean {
+  if (status === 429) return true;
+  const message = extractXaiErrorMessage(payload) ?? "";
+  return /model.{0,40}at capacity|capacity.{0,40}model|model_capacity|overloaded/i.test(message);
+}
+
+async function fetchResponseWithCapacityRetry(
+  apiKey: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+  onCapacityRetry?: (retryNumber: number, message: string) => void,
+): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(`${XAI_API_BASE}/responses`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(60_000)])
+          : AbortSignal.timeout(60_000),
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const timedOut =
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError");
+      throw new GrokChatError(
+        timedOut
+          ? "The assistant took too long to reply. Please try again."
+          : "The assistant service is temporarily unavailable. Please try again.",
+        503,
+      );
+    }
+
+    if (response.ok) return response;
+    const failurePayload: unknown = await response.clone().json().catch(() => null);
+    if (!isCapacityError(response.status, failurePayload)) return response;
+    if (attempt >= CAPACITY_RETRY_DELAYS_MS.length) {
+      throw new GrokChatError(
+        "xAI servers are still experiencing high load. Please try again shortly.",
+        503,
+        response.status,
+      );
+    }
+    const retryNumber = attempt + 1;
+    onCapacityRetry?.(retryNumber, CAPACITY_RETRY_MESSAGE);
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => signal?.removeEventListener("abort", abort);
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, CAPACITY_RETRY_DELAYS_MS[attempt]);
+      const abort = () => {
+        clearTimeout(timer);
+        cleanup();
+        reject(new DOMException("The chat stream was aborted.", "AbortError"));
+      };
+      if (!signal) return;
+      if (signal.aborted) {
+        abort();
+        return;
+      }
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
 }
 
 export function extractXaiErrorMessage(payload: unknown): string | undefined {
@@ -297,6 +390,7 @@ export async function generateGrokChatReply(
   history: AssistantHistoryMessage[],
   attachments: GrokInputAttachment[] = [],
   documentContextOnly = false,
+  onCapacityRetry?: (retryNumber: number, message: string) => void,
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -321,38 +415,21 @@ export async function generateGrokChatReply(
     );
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${XAI_API_BASE}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: discovery.model,
-        input: modelInput(history, attachments, documentContextOnly),
-        store: false,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch (error) {
-    const timedOut =
-      error instanceof Error &&
-      (error.name === "TimeoutError" || error.name === "AbortError");
-    throw new GrokChatError(
-      timedOut
-        ? "The assistant took too long to reply. Please try again."
-        : "The assistant service is temporarily unavailable. Please try again.",
-      503,
-    );
-  }
+  const response = await fetchResponseWithCapacityRetry(
+    apiKey,
+    {
+      model: discovery.model,
+      input: modelInput(history, attachments, documentContextOnly),
+      store: false,
+    },
+    undefined,
+    onCapacityRetry,
+  );
 
   if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
     throw new GrokChatError(
-      response.status === 429
-        ? "The assistant is busy right now. Please try again shortly."
-        : response.status >= 500 || response.status === 401 || response.status === 403
+      response.status >= 500 || response.status === 401 || response.status === 403
           ? "The assistant service is temporarily unavailable. Please try again."
           : "The assistant could not generate a reply. Please try again.",
       response.status >= 500 ||
@@ -383,6 +460,7 @@ export async function streamGrokChatReply(
   signal?: AbortSignal,
   attachments: GrokInputAttachment[] = [],
   documentContextOnly = false,
+  onCapacityRetry?: (retryNumber: number, message: string) => void,
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -408,36 +486,17 @@ export async function streamGrokChatReply(
     );
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${XAI_API_BASE}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: discovery.model,
-        input: modelInput(history, attachments, documentContextOnly),
-        store: false,
-        stream: true,
-      }),
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(60_000)])
-        : AbortSignal.timeout(60_000),
-    });
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    const timedOut =
-      error instanceof Error &&
-      (error.name === "TimeoutError" || error.name === "AbortError");
-    throw new GrokChatError(
-      timedOut
-        ? "The assistant took too long to reply. Please try again."
-        : "The assistant service is temporarily unavailable. Please try again.",
-      503,
-    );
-  }
+  const response = await fetchResponseWithCapacityRetry(
+    apiKey,
+    {
+      model: discovery.model,
+      input: modelInput(history, attachments, documentContextOnly),
+      store: false,
+      stream: true,
+    },
+    signal,
+    onCapacityRetry,
+  );
 
   if (!response.ok) {
     const failurePayload: unknown = await response.json().catch(() => null);

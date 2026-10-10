@@ -5,3 +5,4 @@
 - [OpenAPI streaming responses](openapi-stream-responses.md) — preserve the generated JSON response contract when adding negotiated SSE; Orval may type a leading stream-only status as unknown.
 - [Guest import verification](guest-import-verification.md) — verify retry and account-isolation behavior through the API against development PostgreSQL, not a browser mock.
 - [Multipart chat request limits](multipart-chat-request-limits.md) — raise Multer field and part caps when adding chat metadata to attachment form submissions.
+- [xAI file retention](xai-file-retention.md) — omit `expires_after` for Knowledge Hub files so their saved file IDs remain usable beyond the one-hour default.

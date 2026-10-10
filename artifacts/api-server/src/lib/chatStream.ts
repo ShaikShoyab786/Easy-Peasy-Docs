@@ -5,6 +5,7 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 export type ChatStreamEvent =
   | { type: "delta"; content: string }
   | { type: "done"; content: string; items?: unknown[] }
+  | { type: "status"; message: string }
   | { type: "error"; error: string };
 
 function prepareChatStream(res: Response, statusCode: number): void {
