@@ -11,6 +11,7 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bundlePath = path.join(testDir, ".cache", "conversations.route.mjs");
 const guestBundlePath = path.join(testDir, ".cache", "guest-chat.route.mjs");
 const chatStreamBundlePath = path.join(testDir, ".cache", "chatStream.mjs");
+const xaiBundlePath = path.join(testDir, ".cache", "xai.mjs");
 const draftId = "d8f6f3a4-390f-4c25-a529-25dc45772f0f";
 const ownerId = "route-test-user";
 
@@ -432,6 +433,7 @@ let baseUrl;
 let route;
 let harness;
 let startChatStreamHeartbeat;
+let actualStreamGrokChatReply;
 
 class FakeResponse extends EventEmitter {
   constructor() {
@@ -491,8 +493,19 @@ before(async () => {
     format: "esm",
     packages: "external",
   });
+  await build({
+    entryPoints: [path.join(testDir, "../src/lib/xai.ts")],
+    outfile: xaiBundlePath,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+  });
   ({ startChatStreamHeartbeat } = await import(
     pathToFileURL(chatStreamBundlePath).href
+  ));
+  ({ streamGrokChatReply: actualStreamGrokChatReply } = await import(
+    pathToFileURL(xaiBundlePath).href
   ));
 
   harness = {
@@ -671,6 +684,96 @@ test("document-only chat requires one attachment and passes document scope to Gr
     [{ type: "input_file", file_id: "xai-saved-file-id" }],
   );
   assert.equal(harness.model.receivedUploads, undefined);
+});
+
+async function captureActualGrokStreamPayload({
+  history,
+  attachments = [],
+  documentContextOnly = false,
+  reply,
+}) {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith("/models")) {
+      return new Response(JSON.stringify({
+        data: [{
+          id: "grok-4-1-fast-reasoning",
+          aliases: ["grok-4-1-fast-reasoning-latest"],
+        }],
+      }), { status: 200 });
+    }
+    if (String(url).endsWith("/responses")) {
+      requestBody = JSON.parse(init.body);
+      return new Response([
+        `data: ${JSON.stringify({ type: "response.output_text.delta", delta: reply })}`,
+        "",
+        `data: ${JSON.stringify({ type: "response.completed" })}`,
+        "",
+      ].join("\n"), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    throw new Error(`Unexpected xAI request: ${url}`);
+  };
+
+  try {
+    const result = await actualStreamGrokChatReply(
+      "route-test-key",
+      history,
+      () => {},
+      undefined,
+      attachments,
+      documentContextOnly,
+    );
+    return { requestBody, result };
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+test("document-only xAI payload grounds an unanswered question in its file attachment", async () => {
+  const question = "What is the appeal deadline?";
+  const expectedReply = "The document does not specify the appeal deadline.";
+  const { requestBody, result } = await captureActualGrokStreamPayload({
+    history: [{ role: "user", content: question }],
+    attachments: [{ type: "input_file", file_id: "knowledge-file-123" }],
+    documentContextOnly: true,
+    reply: expectedReply,
+  });
+
+  assert.equal(result, expectedReply);
+  assert.equal(requestBody.stream, true);
+  assert.deepEqual(requestBody.input[0], {
+    role: "developer",
+    content:
+      "Answer the user's question using only the attached document as your source. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the document does not contain the answer, say that it is not specified in the document. Do not guess.",
+  });
+  assert.deepEqual(requestBody.input[1], {
+    role: "user",
+    content: [
+      { type: "input_text", text: question },
+      { type: "input_file", file_id: "knowledge-file-123" },
+    ],
+  });
+});
+
+test("ordinary xAI chat payload does not include the document-only instruction", async () => {
+  const { requestBody } = await captureActualGrokStreamPayload({
+    history: [{ role: "user", content: "Explain why the sky looks blue." }],
+    reply: "Air molecules scatter blue light.",
+  });
+
+  assert.equal(requestBody.stream, true);
+  assert.deepEqual(requestBody.input, [
+    { role: "user", content: "Explain why the sky looks blue." },
+  ]);
+  assert.equal(
+    JSON.stringify(requestBody).includes("attached document as your source"),
+    false,
+  );
 });
 
 test("guest multipart chat parses history and forwards attachments without persistence", async () => {
