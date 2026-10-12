@@ -204,6 +204,163 @@ test("a saved document can replace the context in an existing chat without losin
   await expect(page.getByTestId(`row-document-${documentId}`)).toBeVisible();
 });
 
+test("rapid document switches keep the latest selection and preserve chat history", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1&rapidSwitches=1");
+
+  const conversationId = "66666666-6666-4666-8666-666666666666";
+  const firstSelectionId = "99999999-9999-4999-8999-999999999999";
+  const latestSelectionId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  await expect(page.getByText("What does the policy cover?")).toBeVisible();
+  await expect(page.getByText("The policy covers operational reimbursements.")).toBeVisible();
+
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${firstSelectionId}`).click();
+  await expect.poll(() => page.evaluate((documentId) => {
+    const state = (window as Window & {
+      __chatTestState?: { pendingContentDownloads: string[] };
+    }).__chatTestState;
+    return state?.pendingContentDownloads.includes(documentId) ?? false;
+  }, firstSelectionId)).toBe(true);
+
+  await page.getByTestId(`button-use-document-${latestSelectionId}`).click();
+  await expect.poll(() => page.evaluate((documentId) => {
+    const state = (window as Window & {
+      __chatTestState?: { pendingContentDownloads: string[] };
+    }).__chatTestState;
+    return state?.pendingContentDownloads.includes(documentId) ?? false;
+  }, latestSelectionId)).toBe(true);
+
+  const resolveDownload = (documentId: string) => page.evaluate((id) => {
+    const state = (window as Window & {
+      __chatTestState?: { resolveContentDownload: (documentId: string) => boolean };
+    }).__chatTestState;
+    return state?.resolveContentDownload(id) ?? false;
+  }, documentId);
+  expect(await resolveDownload(latestSelectionId)).toBe(true);
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Project brief.pdf");
+
+  expect(await resolveDownload(firstSelectionId)).toBe(true);
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Project brief.pdf");
+  await expect(page.getByText("What does the policy cover?")).toBeVisible();
+  await expect(page.getByText("The policy covers operational reimbursements.")).toBeVisible();
+  await expect(page.locator('[data-testid^="content-message-"]')).toHaveCount(2);
+
+  const result = await page.evaluate(async ({ conversationId, firstSelectionId, latestSelectionId }) => {
+    const response = await fetch("/api/knowledge-documents");
+    const body = await response.json() as {
+      items: { id: string; conversationId: string | null }[];
+    };
+    const contextRequests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests.filter((request) =>
+      request.path === `/api/conversations/${conversationId}/document-context` &&
+      request.method === "PATCH",
+    ) ?? [];
+    return {
+      links: body.items
+        .filter((item) => [firstSelectionId, latestSelectionId].includes(item.id))
+        .map(({ id, conversationId }) => ({ id, conversationId })),
+      contextRequestBodies: contextRequests.map((request) => request.body),
+    };
+  }, { conversationId, firstSelectionId, latestSelectionId });
+  expect(result.links).toEqual([
+    { id: firstSelectionId, conversationId: null },
+    { id: latestSelectionId, conversationId: conversationId },
+  ]);
+  expect(result.contextRequestBodies).toEqual([{ documentId: latestSelectionId }]);
+});
+
+test("a newer document choice is saved after an earlier context update finishes", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1&rapidSwitches=1&holdContextResponse=1");
+
+  const conversationId = "66666666-6666-4666-8666-666666666666";
+  const firstSelectionId = "99999999-9999-4999-8999-999999999999";
+  const latestSelectionId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${firstSelectionId}`).click();
+  await expect.poll(() => page.evaluate((documentId) => {
+    const state = (window as Window & {
+      __chatTestState?: { pendingContentDownloads: string[] };
+    }).__chatTestState;
+    return state?.pendingContentDownloads.includes(documentId) ?? false;
+  }, firstSelectionId)).toBe(true);
+
+  const resolveContent = (documentId: string) => page.evaluate((id) => {
+    const state = (window as Window & {
+      __chatTestState?: { resolveContentDownload: (documentId: string) => boolean };
+    }).__chatTestState;
+    return state?.resolveContentDownload(id) ?? false;
+  }, documentId);
+  expect(await resolveContent(firstSelectionId)).toBe(true);
+  await expect.poll(() => page.evaluate((documentId) => {
+    const state = (window as Window & {
+      __chatTestState?: { pendingContextUpdates: string[] };
+    }).__chatTestState;
+    return state?.pendingContextUpdates.includes(documentId) ?? false;
+  }, firstSelectionId)).toBe(true);
+
+  await page.getByTestId(`button-use-document-${latestSelectionId}`).click();
+  await expect.poll(() => page.evaluate((documentId) => {
+    const state = (window as Window & {
+      __chatTestState?: { pendingContentDownloads: string[] };
+    }).__chatTestState;
+    return state?.pendingContentDownloads.includes(documentId) ?? false;
+  }, latestSelectionId)).toBe(true);
+  expect(await resolveContent(latestSelectionId)).toBe(true);
+
+  const pendingContextRequests = await page.evaluate((conversationId) => {
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests ?? [];
+    return requests.filter((request) =>
+      request.path === `/api/conversations/${conversationId}/document-context` &&
+      request.method === "PATCH",
+    ).map((request) => request.body);
+  }, conversationId);
+  expect(pendingContextRequests).toEqual([{ documentId: firstSelectionId }]);
+
+  const resolveContext = (documentId: string) => page.evaluate((id) => {
+    const state = (window as Window & {
+      __chatTestState?: { resolveContextUpdate: (documentId: string) => boolean };
+    }).__chatTestState;
+    return state?.resolveContextUpdate(id) ?? false;
+  }, documentId);
+  expect(await resolveContext(firstSelectionId)).toBe(true);
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Project brief.pdf");
+  await expect(page.getByText("What does the policy cover?")).toBeVisible();
+  await expect(page.getByText("The policy covers operational reimbursements.")).toBeVisible();
+
+  const result = await page.evaluate(async ({ conversationId, firstSelectionId, latestSelectionId }) => {
+    const response = await fetch("/api/knowledge-documents");
+    const body = await response.json() as {
+      items: { id: string; conversationId: string | null }[];
+    };
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests ?? [];
+    return {
+      links: body.items
+        .filter((item) => [firstSelectionId, latestSelectionId].includes(item.id))
+        .map(({ id, conversationId }) => ({ id, conversationId })),
+      contextRequestBodies: requests.filter((request) =>
+        request.path === `/api/conversations/${conversationId}/document-context` &&
+        request.method === "PATCH",
+      ).map((request) => request.body),
+    };
+  }, { conversationId, firstSelectionId, latestSelectionId });
+  expect(result.links).toEqual([
+    { id: firstSelectionId, conversationId: null },
+    { id: latestSelectionId, conversationId },
+  ]);
+  expect(result.contextRequestBodies).toEqual([
+    { documentId: firstSelectionId },
+    { documentId: latestSelectionId },
+  ]);
+});
+
 test("a failed document download keeps the existing context and allows retry", async ({ page }) => {
   await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1&switchFailures=1&failContentOnce=1");
 

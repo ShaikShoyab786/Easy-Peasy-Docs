@@ -7,6 +7,7 @@ import "../src/index.css";
 const accountConversationId = "33333333-3333-4333-8333-333333333333";
 const documentConversationId = "66666666-6666-4666-8666-666666666666";
 const switchDocumentId = "99999999-9999-4999-8999-999999999999";
+const latestSwitchDocumentId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const params = new URLSearchParams(window.location.search);
 const sampleConversation = {
   id: accountConversationId,
@@ -93,9 +94,23 @@ const switchKnowledgeDocument: KnowledgeFixtureDocument = {
   status: "ready",
   createdAt: "2026-10-09T12:00:00.000Z",
 };
+const latestSwitchKnowledgeDocument: KnowledgeFixtureDocument = {
+  id: latestSwitchDocumentId,
+  conversationId: null,
+  fileName: "Project brief.pdf",
+  contentType: "application/pdf",
+  byteSize: new TextEncoder().encode("%PDF-1.7\nProject brief content.\n").byteLength,
+  isPinned: false,
+  status: "ready",
+  createdAt: "2026-10-10T12:00:00.000Z",
+};
 
 type ChatTestState = {
   requests: { path: string; method: string; body: unknown }[];
+  pendingContentDownloads: string[];
+  resolveContentDownload: (documentId: string) => boolean;
+  pendingContextUpdates: string[];
+  resolveContextUpdate: (documentId: string) => boolean;
 };
 
 function jsonResponse(data: unknown, status = 200) {
@@ -121,7 +136,31 @@ function eventStreamResponse(events: unknown[]) {
 
 const nativeFetch = window.fetch.bind(window);
 const testWindow = window as Window & { __chatTestState?: ChatTestState };
-const testState: ChatTestState = { requests: [] };
+const pendingContentDownloads: string[] = [];
+const contentDownloadResolvers = new Map<string, Array<() => void>>();
+const pendingContextUpdates: string[] = [];
+const contextUpdateResolvers = new Map<string, Array<(response: Response) => void>>();
+const testState: ChatTestState = {
+  requests: [],
+  pendingContentDownloads,
+  resolveContentDownload(documentId) {
+    const resolver = contentDownloadResolvers.get(documentId)?.shift();
+    if (!resolver) return false;
+    pendingContentDownloads.splice(pendingContentDownloads.indexOf(documentId), 1);
+    resolver();
+    return true;
+  },
+  pendingContextUpdates,
+  resolveContextUpdate(documentId) {
+    const resolver = contextUpdateResolvers.get(documentId)?.shift();
+    if (!resolver) return false;
+    pendingContextUpdates.splice(pendingContextUpdates.indexOf(documentId), 1);
+    resolver(jsonResponse({
+      ...fixtureDocuments.find((item) => item.id === documentId)!,
+    }));
+    return true;
+  },
+};
 testWindow.__chatTestState = testState;
 let fixtureConversations = params.get("documents") === "1"
   ? [documentConversation, sampleConversation]
@@ -136,7 +175,13 @@ const storedFixtureDocuments = (() => {
 })();
 let fixtureDocuments: KnowledgeFixtureDocument[] = storedFixtureDocuments ??
   (params.get("documents") === "1" ? [sampleKnowledgeDocument] : []);
-if (params.get("switchFailures") === "1") {
+if (params.get("rapidSwitches") === "1") {
+  fixtureDocuments = [
+    sampleKnowledgeDocument,
+    switchKnowledgeDocument,
+    latestSwitchKnowledgeDocument,
+  ];
+} else if (params.get("switchFailures") === "1") {
   fixtureDocuments = [sampleKnowledgeDocument, switchKnowledgeDocument];
 }
 function persistFixtureDocuments() {
@@ -152,6 +197,7 @@ function persistFixtureDocuments() {
 const fixtureDocumentBytes = new Map<string, Blob>([
   [sampleKnowledgeDocument.id, new Blob([sampleDocumentContent], { type: sampleKnowledgeDocument.contentType })],
   [switchKnowledgeDocument.id, new Blob(["%PDF-1.7\nIncident report content.\n"], { type: switchKnowledgeDocument.contentType })],
+  [latestSwitchKnowledgeDocument.id, new Blob(["%PDF-1.7\nProject brief content.\n"], { type: latestSwitchKnowledgeDocument.contentType })],
 ]);
 let failContentOnce = params.get("failContentOnce") === "1";
 let failContextOnce = params.get("failContextOnce") === "1";
@@ -247,6 +293,14 @@ window.fetch = (input, init) => {
         : item,
     );
     persistFixtureDocuments();
+    if (params.get("holdContextResponse") === "1" && selected.id === switchDocumentId) {
+      return new Promise<Response>((resolve) => {
+        pendingContextUpdates.push(selected.id);
+        const resolvers = contextUpdateResolvers.get(selected.id) ?? [];
+        resolvers.push(resolve);
+        contextUpdateResolvers.set(selected.id, resolvers);
+      });
+    }
     return Promise.resolve(jsonResponse(updatedDocument));
   }
 
@@ -321,6 +375,20 @@ window.fetch = (input, init) => {
     const content = fixtureDocumentBytes.get(documentContentMatch[1]);
     if (!document || !content || document.status !== "ready") {
       return Promise.resolve(jsonResponse({ error: "Document not found." }, 404));
+    }
+    if (
+      params.get("rapidSwitches") === "1" &&
+      (document.id === switchDocumentId || document.id === latestSwitchDocumentId)
+    ) {
+      return new Promise<Response>((resolve) => {
+        pendingContentDownloads.push(document.id);
+        const resolvers = contentDownloadResolvers.get(document.id) ?? [];
+        resolvers.push(() => resolve(new Response(content, {
+          status: 200,
+          headers: { "Content-Type": document.contentType },
+        })));
+        contentDownloadResolvers.set(document.id, resolvers);
+      });
     }
     return Promise.resolve(new Response(content, {
       status: 200,

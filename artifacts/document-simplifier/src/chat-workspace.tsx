@@ -244,6 +244,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const autoDraftRef = useRef<string | null>(null);
   const guestSelectedIdRef = useRef(guestSelectedId);
   const accountSelectedIdRef = useRef(accountSelectedId);
+  const documentContextSelectionRef = useRef(0);
+  const documentContextMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const guestControllersRef = useRef(new Map<string, AbortController>());
   const guestPendingAttachmentsRef = useRef(new Map<string, File[]>());
   const accountPendingAttachmentsRef = useRef(new Map<string, File[]>());
@@ -1009,12 +1011,12 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       isGuest ||
       isAccountDraft ||
       isSending ||
-      document.status !== "ready" ||
-      setDocumentContext.isPending
+      document.status !== "ready"
     ) {
       return;
     }
 
+    const selectionId = ++documentContextSelectionRef.current;
     setWorkspaceError("");
     try {
       const content = await getKnowledgeDocumentContent(document.id, {
@@ -1026,10 +1028,20 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       const file = new File([content], document.fileName, {
         type: document.contentType,
       });
-      const updatedDocument = await setDocumentContext.mutateAsync({
-        conversationId,
-        data: { documentId: document.id },
+      if (selectionId !== documentContextSelectionRef.current) return;
+      const contextUpdate = documentContextMutationQueueRef.current.then(async () => {
+        if (selectionId !== documentContextSelectionRef.current) return null;
+        return setDocumentContext.mutateAsync({
+          conversationId,
+          data: { documentId: document.id },
+        });
       });
+      documentContextMutationQueueRef.current = contextUpdate.then(
+        () => undefined,
+        () => undefined,
+      );
+      const updatedDocument = await contextUpdate;
+      if (!updatedDocument) return;
       queryClient.setQueryData(
         getListKnowledgeDocumentsQueryKey(),
         (current: { items: KnowledgeDocument[] } | undefined) => current && ({
@@ -1046,10 +1058,13 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
         setActiveKnowledgeDocument(updatedDocument);
         setSelectedFiles([file]);
         accountPendingAttachmentsRef.current.delete(conversationId);
-        setKnowledgeHubOpen(false);
+        if (selectionId === documentContextSelectionRef.current) {
+          setKnowledgeHubOpen(false);
+        }
         setAttachmentError("");
       }
     } catch {
+      if (selectionId !== documentContextSelectionRef.current) return;
       setWorkspaceError("The selected document could not be used in this chat.");
       throw new Error("The selected document could not be used in this chat.");
     }
