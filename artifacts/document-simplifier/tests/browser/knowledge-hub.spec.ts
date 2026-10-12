@@ -140,6 +140,35 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   ]);
 });
 
+test("a Knowledge Hub chat restores its document context and clearing it keeps the stored document", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
+
+  const documentId = "a3333333-3333-4333-8333-333333333333";
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Operations policy.pdf");
+  await expect(page.getByTestId("chip-attachment-0"))
+    .toContainText("Operations policy.pdf");
+
+  await page.reload();
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Operations policy.pdf");
+  await page.getByTestId("button-clear-document-context").click();
+  await expect(page.getByTestId("badge-active-document-context")).toHaveCount(0);
+
+  await page.getByTestId("button-knowledge-hub").click();
+  await expect(page.getByTestId(`row-document-${documentId}`)).toBeVisible();
+  const clearRequest = await page.evaluate((conversationId) => {
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string }[] };
+    }).__chatTestState?.requests ?? [];
+    return requests.find((request) =>
+      request.path === `/api/conversations/${conversationId}/document-context` &&
+      request.method === "DELETE",
+    );
+  }, "66666666-6666-4666-8666-666666666666");
+  expect(clearRequest).toBeTruthy();
+});
+
 test("Knowledge Hub document search still works when analytics is unavailable", async ({ page }) => {
   await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
   await page.getByTestId("button-knowledge-hub").click();

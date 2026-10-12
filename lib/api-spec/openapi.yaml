@@ -264,6 +264,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /conversations/{conversationId}/document-context:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: clearConversationDocumentContext
+      tags: [conversations]
+      summary: Clear the active Knowledge Hub document from a conversation without deleting it
+      security:
+        - ClerkSessionCookie: []
+      responses:
+        "204":
+          description: Active document context cleared
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /conversations/{conversationId}/messages:
     parameters:
       - name: conversationId

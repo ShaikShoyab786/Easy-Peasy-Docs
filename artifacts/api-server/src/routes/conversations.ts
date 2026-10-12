@@ -275,6 +275,37 @@ router.patch("/conversations/:conversationId", requireAuth, async (req, res) => 
 });
 
 router.delete(
+  "/conversations/:conversationId/document-context",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const conversationId = getUuidParam(req.params.conversationId);
+    if (!conversationId) {
+      res.status(404).json({ error: "Conversation not found." });
+      return;
+    }
+
+    const ownerId = getAuthenticatedUserId(req);
+    const conversation = await getOwnedConversation(conversationId, ownerId);
+    if (!conversation) {
+      res.status(404).json({ error: "Conversation not found." });
+      return;
+    }
+
+    await db
+      .update(knowledgeDocumentsTable)
+      .set({ conversationId: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(knowledgeDocumentsTable.conversationId, conversationId),
+          eq(knowledgeDocumentsTable.ownerId, ownerId),
+        ),
+      );
+
+    res.status(204).end();
+  },
+);
+
+router.delete(
   "/conversations/:conversationId",
   requireAuth,
   async (req, res) => {

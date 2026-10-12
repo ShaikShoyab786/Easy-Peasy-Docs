@@ -178,6 +178,18 @@ window.fetch = (input, init) => {
     return Promise.resolve(jsonResponse({ items: fixtureDocuments }));
   }
 
+  const clearDocumentContextMatch = pathname.match(
+    /^\/api\/conversations\/([^/]+)\/document-context$/,
+  );
+  if (clearDocumentContextMatch && method === "DELETE") {
+    fixtureDocuments = fixtureDocuments.map((item) =>
+      item.conversationId === clearDocumentContextMatch[1]
+        ? { ...item, conversationId: null }
+        : item,
+    );
+    return Promise.resolve(new Response(null, { status: 204 }));
+  }
+
   const documentChatMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/chat$/);
   if (documentChatMatch && method === "POST") {
     const document = fixtureDocuments.find((item) => item.id === documentChatMatch[1]);

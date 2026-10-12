@@ -3,10 +3,13 @@ import {
   getKnowledgeDocumentContent,
   getListConversationMessagesQueryKey,
   getListConversationsQueryKey,
+  getListKnowledgeDocumentsQueryKey,
+  useClearConversationDocumentContext,
   useDeleteConversation,
   useImportGuestConversation,
   useListConversationMessages,
   useListConversations,
+  useListKnowledgeDocuments,
   useOpenKnowledgeDocumentChat,
   useRenameConversation,
 } from "@workspace/api-client-react";
@@ -179,6 +182,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [knowledgeHubOpen, setKnowledgeHubOpen] = useState(false);
   const queryClient = useQueryClient();
   const conversationsQuery = useListConversations({ query: { enabled: !isGuest, queryKey: getListConversationsQueryKey() } });
+  const knowledgeDocumentsQuery = useListKnowledgeDocuments({ query: { enabled: !isGuest, queryKey: getListKnowledgeDocumentsQueryKey() } });
+  const clearDocumentContext = useClearConversationDocumentContext();
   const deleteConversation = useDeleteConversation();
   const renameConversation = useRenameConversation();
   const guestImportMutation = useImportGuestConversation();
@@ -193,6 +198,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const [draft, setDraft] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [activeKnowledgeDocument, setActiveKnowledgeDocument] = useState<KnowledgeDocument | null>(null);
+  const [restoringDocumentContextId, setRestoringDocumentContextId] = useState("");
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachmentError, setAttachmentError] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -266,6 +272,11 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const accountMessagesQuery = useListConversationMessages(activeAccountId, {
     query: { enabled: !isGuest && !!activeAccountId && !isAccountDraft, queryKey: getListConversationMessagesQueryKey(activeAccountId) },
   });
+  const isRestoringDocumentContext = !isGuest &&
+    !knowledgeHubOpen &&
+    !!activeAccountId &&
+    !isAccountDraft &&
+    (knowledgeDocumentsQuery.isLoading || restoringDocumentContextId === activeAccountId);
   const accountMessages = accountMessagesQuery.data?.items ?? [];
   const messages: (GuestChatMessage | Message)[] = isGuest
     ? (activeGuest?.messages ?? [])
@@ -367,6 +378,55 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       setAccountSelectedId(accountConversations[0].id);
     }
   }, [isGuest, accountSelectedId, accountConversations]);
+
+  useEffect(() => {
+    if (isGuest || knowledgeHubOpen || !activeAccountId || isAccountDraft) {
+      setRestoringDocumentContextId("");
+      return;
+    }
+    if (knowledgeDocumentsQuery.isLoading) return;
+
+    const document = knowledgeDocumentsQuery.data?.items.find((item) =>
+      item.conversationId === activeAccountId && item.status === "ready",
+    );
+    if (!document) {
+      setActiveKnowledgeDocument(null);
+      setRestoringDocumentContextId("");
+      return;
+    }
+
+    let cancelled = false;
+    setActiveKnowledgeDocument(document);
+    setRestoringDocumentContextId(activeAccountId);
+    void getKnowledgeDocumentContent(document.id, { responseType: "blob" })
+      .then((content) => {
+        if (content.size !== document.byteSize) {
+          throw new Error("The document could not be loaded completely.");
+        }
+        if (cancelled || accountSelectedIdRef.current !== activeAccountId) return;
+        const file = new File([content], document.fileName, {
+          type: document.contentType,
+        });
+        setSelectedFiles([file]);
+        setRestoringDocumentContextId("");
+      })
+      .catch(() => {
+        if (cancelled || accountSelectedIdRef.current !== activeAccountId) return;
+        setRestoringDocumentContextId("");
+        setWorkspaceError("The active document context could not be restored.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isGuest,
+    knowledgeHubOpen,
+    activeAccountId,
+    isAccountDraft,
+    knowledgeDocumentsQuery.data,
+    knowledgeDocumentsQuery.isLoading,
+  ]);
 
   useEffect(() => {
     if (shouldAutoScrollRef.current && (messages.length || accountPendingTurn?.conversationId === activeAccountId)) {
@@ -737,6 +797,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isRestoringDocumentContext) return;
     const content = draft.trim() || (activeKnowledgeDocument ? "" : selectedFiles.length
       ? selectedFiles.length > 1
         ? "Summarize and simplify these attachments."
@@ -879,17 +940,20 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   function selectChat(id: string) {
     setKnowledgeHubOpen(false);
-    setActiveKnowledgeDocument(null);
     if (isGuest) {
       guestSelectedIdRef.current = id;
       setGuestSelectedId(id);
       setGuestErrors((errors) => ({ ...errors, [id]: "" }));
       setSelectedFiles(guestPendingAttachmentsRef.current.get(id) ?? []);
     } else {
+      const alreadySelected = accountSelectedIdRef.current === id;
       accountSelectedIdRef.current = id;
       setAccountSelectedId(id);
       setAccountError("");
-      setSelectedFiles(accountPendingAttachmentsRef.current.get(id) ?? []);
+      if (!alreadySelected || !activeKnowledgeDocument) {
+        setActiveKnowledgeDocument(null);
+        setSelectedFiles(accountPendingAttachmentsRef.current.get(id) ?? []);
+      }
     }
     setDraft("");
     autoDraftRef.current = null;
@@ -900,9 +964,6 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
 
   function openKnowledgeHub() {
     setKnowledgeHubOpen(true);
-    setActiveKnowledgeDocument(null);
-    setSelectedFiles([]);
-    accountPendingAttachmentsRef.current.delete(accountSelectedIdRef.current ?? "");
     setMobileSidebarOpen(false);
     setAttachmentMenuOpen(false);
   }
@@ -937,6 +998,36 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     trackEvent("knowledge_hub_view_chat_opened", {
       file_type: getKnowledgeHubFileType(document.fileName),
     });
+  }
+
+  async function clearActiveDocumentContext() {
+    if (!activeAccountId || clearDocumentContext.isPending) return;
+    setWorkspaceError("");
+    try {
+      await clearDocumentContext.mutateAsync({ conversationId: activeAccountId });
+      queryClient.setQueryData(
+        getListKnowledgeDocumentsQueryKey(),
+        (current: { items: KnowledgeDocument[] } | undefined) => current && ({
+          items: current.items.map((item) =>
+            item.conversationId === activeAccountId
+              ? { ...item, conversationId: null }
+              : item,
+          ),
+        }),
+      );
+      await queryClient.invalidateQueries({
+        queryKey: getListKnowledgeDocumentsQueryKey(),
+      });
+      if (accountSelectedIdRef.current === activeAccountId) {
+        setActiveKnowledgeDocument(null);
+        setSelectedFiles([]);
+        accountPendingAttachmentsRef.current.delete(activeAccountId);
+        setAccountPendingTurn(null);
+        setAccountError("");
+      }
+    } catch {
+      setWorkspaceError("The active document context could not be cleared.");
+    }
   }
 
   const guestSorted = sortedGuestConversations;
@@ -1110,14 +1201,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                 <button
                   type="button"
                   aria-label="Clear active document context"
-                  onClick={() => {
-                    setActiveKnowledgeDocument(null);
-                    setSelectedFiles([]);
-                    accountPendingAttachmentsRef.current.delete(accountSelectedIdRef.current ?? "");
-                    setAccountPendingTurn(null);
-                    setAccountError("");
-                  }}
-                  disabled={isSending}
+                  onClick={() => void clearActiveDocumentContext()}
+                  disabled={isSending || clearDocumentContext.isPending}
                   data-testid="button-clear-document-context"
                 >
                   <X size={13} />
@@ -1458,7 +1543,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
                   <Square size={14} fill="currentColor" />
                 </button>
               ) : (
-                <button type="submit" disabled={(!draft.trim() && (Boolean(activeKnowledgeDocument) || selectedFiles.length === 0)) || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
+                <button type="submit" disabled={isRestoringDocumentContext || (!draft.trim() && (Boolean(activeKnowledgeDocument) || selectedFiles.length === 0)) || (!isGuest && !activeAccount)} aria-label="Send message" data-testid="button-send-message">
                   <ArrowUp size={18} strokeWidth={2.2} />
                 </button>
               )}

@@ -141,6 +141,16 @@ export const DeleteConversationResponse = zod.void()
 
 
 /**
+ * @summary Clear the active Knowledge Hub document from a conversation without deleting it
+ */
+export const ClearConversationDocumentContextParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const ClearConversationDocumentContextResponse = zod.void()
+
+
+/**
  * @summary List messages in a user-owned conversation
  */
 export const ListConversationMessagesParams = zod.object({

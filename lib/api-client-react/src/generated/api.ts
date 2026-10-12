@@ -718,6 +718,80 @@ export const useDeleteConversation = <TError = ErrorType<ApiError>,
       return useMutation(getDeleteConversationMutationOptions(options));
     }
 
+export const getClearConversationDocumentContextUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}/document-context`
+}
+
+/**
+ * @summary Clear the active Knowledge Hub document from a conversation without deleting it
+ */
+export const clearConversationDocumentContext = async (conversationId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getClearConversationDocumentContextUrl(conversationId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearConversationDocumentContextMutationKey = () => ['clearConversationDocumentContext'] as const;
+
+export const getClearConversationDocumentContextMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearConversationDocumentContext>>, TError,ClearConversationDocumentContextMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearConversationDocumentContext>>, TError,ClearConversationDocumentContextMutationVariables, TContext> => {
+
+const mutationKey = getClearConversationDocumentContextMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearConversationDocumentContext>>, ClearConversationDocumentContextMutationVariables> = (props) => {
+          const {conversationId} = props ?? {};
+
+          return  clearConversationDocumentContext(conversationId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearConversationDocumentContextMutationResult = NonNullable<Awaited<ReturnType<typeof clearConversationDocumentContext>>>
+
+    export type ClearConversationDocumentContextMutationError = ErrorType<ApiError>
+    export type ClearConversationDocumentContextMutationVariables = {conversationId: string}
+
+    /**
+ * @summary Clear the active Knowledge Hub document from a conversation without deleting it
+ */
+export const useClearConversationDocumentContext = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearConversationDocumentContext>>, TError,ClearConversationDocumentContextMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearConversationDocumentContext>>,
+        TError,
+        ClearConversationDocumentContextMutationVariables,
+        TContext
+      > => {
+      return useMutation(getClearConversationDocumentContextMutationOptions(options));
+    }
+
 export const getListConversationMessagesUrl = (conversationId: string,) => {
 
 

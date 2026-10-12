@@ -600,6 +600,36 @@ test("missing assistant configuration leaves a draft conversation uncreated", as
   assert.equal(harness.db.state.transactionAttempts, 0);
 });
 
+test("clearing a conversation's document context keeps the Knowledge Hub document", async () => {
+  resetDatabase();
+  const documentId = "a3333333-3333-4333-8333-333333333333";
+  harness.db.state.conversations.set(draftId, {
+    id: draftId,
+    ownerId,
+    title: "Chat about a policy",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const document = {
+    id: documentId,
+    ownerId,
+    conversationId: draftId,
+    status: "ready",
+    fileName: "policy.pdf",
+  };
+  harness.db.state.knowledgeDocuments.set(documentId, document);
+
+  const response = await fetch(
+    `${baseUrl}/api/conversations/${draftId}/document-context`,
+    { method: "DELETE" },
+  );
+
+  assert.equal(response.status, 204);
+  assert.equal(harness.db.state.conversations.has(draftId), true);
+  assert.equal(harness.db.state.knowledgeDocuments.has(documentId), true);
+  assert.equal(harness.db.state.knowledgeDocuments.get(documentId).conversationId, null);
+});
+
 test("multipart chat validates file signatures before calling Grok", async () => {
   resetDatabase();
   process.env.XAI_API_KEY = "route-test-key";
