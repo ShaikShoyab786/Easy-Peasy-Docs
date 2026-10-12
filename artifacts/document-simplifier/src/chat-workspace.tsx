@@ -12,6 +12,7 @@ import {
   useListKnowledgeDocuments,
   useOpenKnowledgeDocumentChat,
   useRenameConversation,
+  useSetConversationDocumentContext,
 } from "@workspace/api-client-react";
 import type { Conversation, GuestChatMessage, KnowledgeDocument, Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -184,6 +185,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
   const conversationsQuery = useListConversations({ query: { enabled: !isGuest, queryKey: getListConversationsQueryKey() } });
   const knowledgeDocumentsQuery = useListKnowledgeDocuments({ query: { enabled: !isGuest, queryKey: getListKnowledgeDocumentsQueryKey() } });
   const clearDocumentContext = useClearConversationDocumentContext();
+  const setDocumentContext = useSetConversationDocumentContext();
   const deleteConversation = useDeleteConversation();
   const renameConversation = useRenameConversation();
   const guestImportMutation = useImportGuestConversation();
@@ -1000,6 +1002,59 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
     });
   }
 
+  async function useKnowledgeDocumentInActiveChat(document: KnowledgeDocument) {
+    const conversationId = activeAccountId;
+    if (
+      !conversationId ||
+      isGuest ||
+      isAccountDraft ||
+      isSending ||
+      document.status !== "ready" ||
+      setDocumentContext.isPending
+    ) {
+      return;
+    }
+
+    setWorkspaceError("");
+    try {
+      const content = await getKnowledgeDocumentContent(document.id, {
+        responseType: "blob",
+      });
+      if (content.size !== document.byteSize) {
+        throw new Error("The document could not be loaded completely.");
+      }
+      const file = new File([content], document.fileName, {
+        type: document.contentType,
+      });
+      const updatedDocument = await setDocumentContext.mutateAsync({
+        conversationId,
+        data: { documentId: document.id },
+      });
+      queryClient.setQueryData(
+        getListKnowledgeDocumentsQueryKey(),
+        (current: { items: KnowledgeDocument[] } | undefined) => current && ({
+          items: current.items.map((item) => {
+            if (item.id === updatedDocument.id) return updatedDocument;
+            if (item.conversationId === conversationId) {
+              return { ...item, conversationId: null };
+            }
+            return item;
+          }),
+        }),
+      );
+      if (accountSelectedIdRef.current === conversationId) {
+        setActiveKnowledgeDocument(updatedDocument);
+        setSelectedFiles([file]);
+        accountPendingAttachmentsRef.current.delete(conversationId);
+        setKnowledgeHubOpen(false);
+        setAttachmentError("");
+      }
+    } catch {
+      setWorkspaceError("The selected document could not be used in this chat.");
+      throw new Error("The selected document could not be used in this chat.");
+    }
+  }
+
   async function clearActiveDocumentContext() {
     if (!activeAccountId || clearDocumentContext.isPending) return;
     setWorkspaceError("");
@@ -1219,6 +1274,12 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               isGuest={isGuest}
               onSignIn={redirectKnowledgeHubGuestToSignIn}
               onViewChat={startChatWithKnowledgeDocument}
+              onUseInChat={
+                !isGuest && activeAccountId && !isAccountDraft
+                  ? useKnowledgeDocumentInActiveChat
+                  : undefined
+              }
+              activeDocumentId={activeKnowledgeDocument?.id}
             />
           </div>
         ) : (

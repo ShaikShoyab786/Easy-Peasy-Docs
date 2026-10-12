@@ -4,6 +4,8 @@ import { db, knowledgeDocumentsTable } from "@workspace/db";
 import {
   ImportGuestConversationBody,
   ImportGuestConversationResponse,
+  SetConversationDocumentContextBody,
+  SetConversationDocumentContextResponse,
   SendConversationChatTurnBody,
   SendConversationChatTurnResponse,
 } from "@workspace/api-zod";
@@ -302,6 +304,83 @@ router.delete(
       );
 
     res.status(204).end();
+  },
+);
+
+router.patch(
+  "/conversations/:conversationId/document-context",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const conversationId = getUuidParam(req.params.conversationId);
+    if (!conversationId) {
+      res.status(404).json({ error: "Conversation not found." });
+      return;
+    }
+    const parsed = SetConversationDocumentContextBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Choose a valid Knowledge Hub document." });
+      return;
+    }
+
+    const ownerId = getAuthenticatedUserId(req);
+    const document = await db.transaction(async (tx) => {
+      const [conversation] = await tx
+        .select({ id: conversationsTable.id })
+        .from(conversationsTable)
+        .where(
+          and(
+            eq(conversationsTable.id, conversationId),
+            eq(conversationsTable.ownerId, ownerId),
+          ),
+        )
+        .for("update");
+      if (!conversation) return null;
+
+      const [selectedDocument] = await tx
+        .select()
+        .from(knowledgeDocumentsTable)
+        .where(
+          and(
+            eq(knowledgeDocumentsTable.id, parsed.data.documentId),
+            eq(knowledgeDocumentsTable.ownerId, ownerId),
+            eq(knowledgeDocumentsTable.status, "ready"),
+          ),
+        )
+        .for("update");
+      if (!selectedDocument) return null;
+      if (selectedDocument.conversationId === conversationId) {
+        return selectedDocument;
+      }
+
+      const updatedAt = new Date();
+      await tx
+        .update(knowledgeDocumentsTable)
+        .set({ conversationId: null, updatedAt })
+        .where(
+          and(
+            eq(knowledgeDocumentsTable.conversationId, conversationId),
+            eq(knowledgeDocumentsTable.ownerId, ownerId),
+          ),
+        );
+      await tx
+        .update(knowledgeDocumentsTable)
+        .set({ conversationId, updatedAt })
+        .where(
+          and(
+            eq(knowledgeDocumentsTable.id, selectedDocument.id),
+            eq(knowledgeDocumentsTable.ownerId, ownerId),
+            eq(knowledgeDocumentsTable.status, "ready"),
+          ),
+        );
+
+      return { ...selectedDocument, conversationId, updatedAt };
+    });
+
+    if (!document) {
+      res.status(404).json({ error: "Conversation or ready document not found." });
+      return;
+    }
+    res.json(SetConversationDocumentContextResponse.parse(document));
   },
 );
 

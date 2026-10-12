@@ -106,6 +106,10 @@ export interface KnowledgeDocumentPinInput {
   isPinned: boolean;
 }
 
+export interface ConversationDocumentContextInput {
+  documentId: string;
+}
+
 export interface CreateMessageBody {
   /**
      * @minLength 1

@@ -115,9 +115,26 @@ testWindow.__chatTestState = testState;
 let fixtureConversations = params.get("documents") === "1"
   ? [documentConversation, sampleConversation]
   : [sampleConversation];
-let fixtureDocuments: KnowledgeFixtureDocument[] = params.get("documents") === "1"
-  ? [sampleKnowledgeDocument]
-  : [];
+const storedFixtureDocuments = (() => {
+  try {
+    const value = localStorage.getItem("chat-layout-fixture:knowledge-documents");
+    return value ? JSON.parse(value) as KnowledgeFixtureDocument[] : null;
+  } catch {
+    return null;
+  }
+})();
+let fixtureDocuments: KnowledgeFixtureDocument[] = storedFixtureDocuments ??
+  (params.get("documents") === "1" ? [sampleKnowledgeDocument] : []);
+function persistFixtureDocuments() {
+  try {
+    localStorage.setItem(
+      "chat-layout-fixture:knowledge-documents",
+      JSON.stringify(fixtureDocuments),
+    );
+  } catch {
+    // The in-memory fixture remains usable if browser storage is unavailable.
+  }
+}
 const fixtureDocumentBytes = new Map<string, Blob>([
   [sampleKnowledgeDocument.id, new Blob([sampleDocumentContent], { type: sampleKnowledgeDocument.contentType })],
 ]);
@@ -187,7 +204,29 @@ window.fetch = (input, init) => {
         ? { ...item, conversationId: null }
         : item,
     );
+    persistFixtureDocuments();
     return Promise.resolve(new Response(null, { status: 204 }));
+  }
+
+  if (clearDocumentContextMatch && method === "PATCH") {
+    const contextBody = body as { documentId?: string } | undefined;
+    const selected = fixtureDocuments.find((item) =>
+      item.id === contextBody?.documentId && item.status === "ready",
+    );
+    if (!selected) {
+      return Promise.resolve(jsonResponse({ error: "Document not found." }, 404));
+    }
+    const updatedDocument = {
+      ...selected,
+      conversationId: clearDocumentContextMatch[1],
+    };
+    fixtureDocuments = fixtureDocuments.map((item) =>
+      item.conversationId === clearDocumentContextMatch[1] || item.id === selected.id
+        ? { ...item, conversationId: item.id === selected.id ? clearDocumentContextMatch[1] : null }
+        : item,
+    );
+    persistFixtureDocuments();
+    return Promise.resolve(jsonResponse(updatedDocument));
   }
 
   const documentChatMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/chat$/);
@@ -223,6 +262,7 @@ window.fetch = (input, init) => {
       createdAt: new Date().toISOString(),
     };
     fixtureDocuments = [document, ...fixtureDocuments];
+    persistFixtureDocuments();
     return Promise.resolve(jsonResponse({
       document,
       uploadUrl: `https://uploads.test/${id}`,
@@ -246,6 +286,7 @@ window.fetch = (input, init) => {
     }
     const readyDocument = { ...document, status: "ready" as const, conversationId: documentConversationId };
     fixtureDocuments = fixtureDocuments.map((item) => item.id === document.id ? readyDocument : item);
+    persistFixtureDocuments();
     return Promise.resolve(jsonResponse(readyDocument));
   }
 
@@ -271,12 +312,14 @@ window.fetch = (input, init) => {
     }
     const updatedDocument = { ...document, isPinned: pinBody.isPinned };
     fixtureDocuments = fixtureDocuments.map((item) => item.id === document.id ? updatedDocument : item);
+    persistFixtureDocuments();
     return Promise.resolve(jsonResponse(updatedDocument));
   }
 
   const deleteDocumentMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)$/);
   if (deleteDocumentMatch && method === "DELETE") {
     fixtureDocuments = fixtureDocuments.filter((item) => item.id !== deleteDocumentMatch[1]);
+    persistFixtureDocuments();
     fixtureDocumentBytes.delete(deleteDocumentMatch[1]);
     return Promise.resolve(new Response(null, { status: 204 }));
   }

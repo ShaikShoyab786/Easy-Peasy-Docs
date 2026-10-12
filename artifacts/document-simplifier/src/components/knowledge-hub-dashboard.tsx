@@ -30,6 +30,8 @@ export interface KnowledgeHubDashboardProps {
   isGuest: boolean;
   onSignIn: () => void;
   onViewChat: (document: KnowledgeDocument) => Promise<void>;
+  onUseInChat?: (document: KnowledgeDocument) => Promise<void>;
+  activeDocumentId?: string;
 }
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -91,7 +93,13 @@ function uploadFileToUrl(uploadUrl: string, file: File, contentType: string, onP
   });
 }
 
-export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: KnowledgeHubDashboardProps) {
+export function KnowledgeHubDashboard({
+  isGuest,
+  onSignIn,
+  onViewChat,
+  onUseInChat,
+  activeDocumentId,
+}: KnowledgeHubDashboardProps) {
   const queryClient = useQueryClient();
   const documentsQuery = useListKnowledgeDocuments({
     query: { queryKey: getListKnowledgeDocumentsQueryKey(), enabled: !isGuest },
@@ -266,6 +274,19 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
     }
   };
 
+  const handleUseInChat = async (document: KnowledgeDocument) => {
+    if (!onUseInChat) return;
+    setNotice(null);
+    setBusyDocumentId(document.id);
+    try {
+      await onUseInChat(document);
+    } catch {
+      setNotice({ kind: "error", text: `Could not use ${document.fileName} in this chat. Please try again.` });
+    } finally {
+      setBusyDocumentId(null);
+    }
+  };
+
   return (
     <div className="kh-dashboard" data-testid="page-knowledge-hub-dashboard">
       <div className="kh-content">
@@ -354,6 +375,16 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
                       <button type="button" onClick={() => void handleViewChat(document)} disabled={busyDocumentId === document.id} data-testid={`button-view-chat-pinned-${document.id}`}>
                         View chat <ArrowUpRight size={15} />
                       </button>
+                      {onUseInChat && (
+                        <button
+                          type="button"
+                          onClick={() => void handleUseInChat(document)}
+                          disabled={busyDocumentId === document.id || document.status !== "ready"}
+                          data-testid={`button-use-document-pinned-${document.id}`}
+                        >
+                          {activeDocumentId === document.id ? "In this chat" : "Use in chat"}
+                        </button>
+                      )}
                     </article>
                   ))}
                 </div>
@@ -425,6 +456,17 @@ export function KnowledgeHubDashboard({ isGuest, onSignIn, onViewChat }: Knowled
                             <button className="kh-view-action" type="button" onClick={() => void handleViewChat(document)} disabled={busyDocumentId === document.id || document.status !== "ready"} data-testid={`button-view-chat-${document.id}`}>
                               View Chat <ArrowUpRight size={14} />
                             </button>
+                            {onUseInChat && (
+                              <button
+                                className="kh-view-action"
+                                type="button"
+                                onClick={() => void handleUseInChat(document)}
+                                disabled={busyDocumentId === document.id || document.status !== "ready" || activeDocumentId === document.id}
+                                data-testid={`button-use-document-${document.id}`}
+                              >
+                                {activeDocumentId === document.id ? "In this chat" : "Use in chat"}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

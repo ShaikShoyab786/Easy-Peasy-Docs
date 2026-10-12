@@ -151,6 +151,29 @@ export const ClearConversationDocumentContextResponse = zod.void()
 
 
 /**
+ * @summary Use a ready Knowledge Hub document as a conversation's active context
+ */
+export const SetConversationDocumentContextParams = zod.object({
+  "conversationId": zod.coerce.string().uuid()
+})
+
+export const SetConversationDocumentContextBody = zod.object({
+  "documentId": zod.string().uuid()
+})
+
+export const SetConversationDocumentContextResponse = zod.object({
+  "id": zod.string().uuid(),
+  "conversationId": zod.string().uuid().nullable(),
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "byteSize": zod.number().int(),
+  "isPinned": zod.boolean(),
+  "status": zod.enum(['pending_upload', 'ready']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary List messages in a user-owned conversation
  */
 export const ListConversationMessagesParams = zod.object({

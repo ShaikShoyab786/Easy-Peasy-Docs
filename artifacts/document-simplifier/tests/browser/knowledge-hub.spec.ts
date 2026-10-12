@@ -169,6 +169,41 @@ test("a Knowledge Hub chat restores its document context and clearing it keeps t
   expect(clearRequest).toBeTruthy();
 });
 
+test("a saved document can replace the context in an existing chat without losing its history", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
+
+  const documentId = "a3333333-3333-4333-8333-333333333333";
+  const existingConversationId = "33333333-3333-4333-8333-333333333333";
+  await page.getByTestId(`button-select-chat-${existingConversationId}`).click();
+  await expect(page.getByText("Why do planets orbit the Sun?")).toBeVisible();
+
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${documentId}`).click();
+  await expect(page.getByTestId("page-knowledge-hub")).toHaveCount(0);
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Operations policy.pdf");
+  await expect(page.getByText("Why do planets orbit the Sun?")).toBeVisible();
+
+  const contextRequest = await page.evaluate((conversationId) => {
+    const requests = (window as Window & {
+      __chatTestState?: { requests: { path: string; method: string; body: unknown }[] };
+    }).__chatTestState?.requests ?? [];
+    return requests.find((request) =>
+      request.path === `/api/conversations/${conversationId}/document-context` &&
+      request.method === "PATCH",
+    );
+  }, existingConversationId);
+  expect(contextRequest?.body).toEqual({ documentId });
+
+  await page.reload();
+  await page.getByTestId(`button-select-chat-${existingConversationId}`).click();
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Operations policy.pdf");
+  await expect(page.getByText("Why do planets orbit the Sun?")).toBeVisible();
+  await page.getByTestId("button-knowledge-hub").click();
+  await expect(page.getByTestId(`row-document-${documentId}`)).toBeVisible();
+});
+
 test("Knowledge Hub document search still works when analytics is unavailable", async ({ page }) => {
   await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
   await page.getByTestId("button-knowledge-hub").click();

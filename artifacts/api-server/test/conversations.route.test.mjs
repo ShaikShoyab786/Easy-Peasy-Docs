@@ -28,6 +28,7 @@ const mockModules = new Map([
         conversationId: column("knowledge_documents", "conversationId"),
         status: column("knowledge_documents", "status"),
         xaiFileId: column("knowledge_documents", "xaiFileId"),
+        updatedAt: column("knowledge_documents", "updatedAt"),
       };
     `,
   ],
@@ -63,6 +64,7 @@ const mockModules = new Map([
         conversationId: column("knowledge_documents", "conversationId"),
         status: column("knowledge_documents", "status"),
         xaiFileId: column("knowledge_documents", "xaiFileId"),
+        updatedAt: column("knowledge_documents", "updatedAt"),
       };
     `,
   ],
@@ -98,6 +100,10 @@ const mockModules = new Map([
       });
       export const ImportGuestConversationBody = z.object({});
       export const ImportGuestConversationResponse = z.any();
+      export const SetConversationDocumentContextBody = z.object({
+        documentId: z.string().uuid(),
+      });
+      export const SetConversationDocumentContextResponse = z.any();
     `,
   ],
   [
@@ -411,6 +417,9 @@ function createFakeDatabase() {
         conversations: new Map(
           [...database.conversations].map(([id, row]) => [id, { ...row }]),
         ),
+        knowledgeDocuments: new Map(
+          [...database.knowledgeDocuments].map(([id, row]) => [id, { ...row }]),
+        ),
         messages: database.messages.map((row) => ({ ...row })),
         messageSequence: database.messageSequence,
       };
@@ -419,6 +428,7 @@ function createFakeDatabase() {
         return await callback(new FakeSession(database, database.failAt));
       } catch (error) {
         database.conversations = snapshot.conversations;
+        database.knowledgeDocuments = snapshot.knowledgeDocuments;
         database.messages = snapshot.messages;
         database.messageSequence = snapshot.messageSequence;
         throw error;
@@ -628,6 +638,106 @@ test("clearing a conversation's document context keeps the Knowledge Hub documen
   assert.equal(harness.db.state.conversations.has(draftId), true);
   assert.equal(harness.db.state.knowledgeDocuments.has(documentId), true);
   assert.equal(harness.db.state.knowledgeDocuments.get(documentId).conversationId, null);
+});
+
+test("setting a conversation's document context switches documents without deleting either one or chat history", async () => {
+  resetDatabase();
+  const targetConversationId = draftId;
+  const sourceConversationId = "c8f6f3a4-390f-4c25-a529-25dc45772f0f";
+  const currentDocumentId = "a3333333-3333-4333-8333-333333333333";
+  const selectedDocumentId = "b3333333-3333-4333-8333-333333333333";
+  harness.db.state.conversations.set(targetConversationId, {
+    id: targetConversationId,
+    ownerId,
+    title: "Existing chat",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  harness.db.state.conversations.set(sourceConversationId, {
+    id: sourceConversationId,
+    ownerId,
+    title: "Original document chat",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  harness.db.state.messages.push({
+    id: "existing-message",
+    conversationId: targetConversationId,
+    role: "user",
+    content: "Keep this chat history",
+    createdAt: new Date(),
+  });
+  harness.db.state.knowledgeDocuments.set(currentDocumentId, {
+    id: currentDocumentId,
+    ownerId,
+    conversationId: targetConversationId,
+    status: "ready",
+    fileName: "current.pdf",
+  });
+  harness.db.state.knowledgeDocuments.set(selectedDocumentId, {
+    id: selectedDocumentId,
+    ownerId,
+    conversationId: sourceConversationId,
+    status: "ready",
+    fileName: "selected.pdf",
+  });
+
+  const response = await fetch(
+    `${baseUrl}/api/conversations/${targetConversationId}/document-context`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ documentId: selectedDocumentId }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(harness.db.state.conversations.has(targetConversationId), true);
+  assert.equal(harness.db.state.conversations.has(sourceConversationId), true);
+  assert.equal(harness.db.state.messages[0].content, "Keep this chat history");
+  assert.equal(harness.db.state.knowledgeDocuments.size, 2);
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(currentDocumentId).conversationId,
+    null,
+  );
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(selectedDocumentId).conversationId,
+    targetConversationId,
+  );
+});
+
+test("setting a conversation's document context rejects a document owned by someone else", async () => {
+  resetDatabase();
+  harness.db.state.conversations.set(draftId, {
+    id: draftId,
+    ownerId,
+    title: "Existing chat",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const documentId = "a3333333-3333-4333-8333-333333333333";
+  harness.db.state.knowledgeDocuments.set(documentId, {
+    id: documentId,
+    ownerId: "another-user",
+    conversationId: null,
+    status: "ready",
+    fileName: "private.pdf",
+  });
+
+  const response = await fetch(
+    `${baseUrl}/api/conversations/${draftId}/document-context`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ documentId }),
+    },
+  );
+
+  assert.equal(response.status, 404);
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(documentId).conversationId,
+    null,
+  );
 });
 
 test("multipart chat validates file signatures before calling Grok", async () => {

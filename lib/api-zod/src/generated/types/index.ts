@@ -18,6 +18,7 @@ export * from './chatStreamError';
 export * from './chatStreamEvent';
 export * from './conversation';
 export * from './conversationCreatePayload';
+export * from './conversationDocumentContextInput';
 export * from './conversationList';
 export * from './conversationRenamePayload';
 export * from './createMessageBody';

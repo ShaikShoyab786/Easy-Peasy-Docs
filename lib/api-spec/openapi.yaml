@@ -293,6 +293,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: setConversationDocumentContext
+      tags: [conversations]
+      summary: Use a ready Knowledge Hub document as a conversation's active context
+      security:
+        - ClerkSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationDocumentContextInput"
+      responses:
+        "200":
+          description: Document linked as the conversation's active context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "400":
+          description: Invalid document identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Conversation or ready document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /conversations/{conversationId}/messages:
     parameters:
       - name: conversationId
@@ -830,6 +867,14 @@ components:
         isPinned:
           type: boolean
       required: [isPinned]
+    ConversationDocumentContextInput:
+      type: object
+      additionalProperties: false
+      properties:
+        documentId:
+          type: string
+          format: uuid
+      required: [documentId]
     CreateMessageBody:
       type: object
       properties:
