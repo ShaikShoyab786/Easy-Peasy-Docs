@@ -100,3 +100,107 @@ test("capacity errors stop after three retries", async () => {
   assert.equal(responseRequests, 4);
   assert.deepEqual(retryNumbers, [1, 2, 3]);
 });
+
+test("streamed capacity and rate-limit errors retry before reply text starts", async () => {
+  const streamErrors = [
+    {
+      label: "response.failed capacity",
+      payload: {
+        type: "response.failed",
+        response: {
+          error: {
+            code: "model_capacity_exceeded",
+            message: "The model is currently at capacity due to high demand.",
+          },
+        },
+      },
+    },
+    {
+      label: "error event rate limit",
+      payload: {
+        type: "error",
+        error: {
+          code: "rate_limit_exceeded",
+          message: "Rate limit exceeded. Please retry.",
+        },
+      },
+    },
+  ];
+
+  for (const { label, payload } of streamErrors) {
+    let responseRequests = 0;
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/models")) {
+        return Response.json({
+          data: [{ id: "grok-3-latest", aliases: ["grok-3-latest"] }],
+        });
+      }
+      responseRequests += 1;
+      if (responseRequests === 1) {
+        return new Response(`data: ${JSON.stringify(payload)}\n\n`, {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }
+      return new Response(
+        'data: {"type":"response.output_text.delta","delta":"Recovered answer"}\n\n' +
+          'data: {"type":"response.completed"}\n\n',
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    };
+
+    const retryNumbers = [];
+    const reply = await streamGrokChatReply(
+      "test-key",
+      [{ role: "user", content: `Test ${label}.` }],
+      () => {},
+      undefined,
+      [],
+      false,
+      (retryNumber) => retryNumbers.push(retryNumber),
+    );
+
+    assert.equal(reply, "Recovered answer", label);
+    assert.equal(responseRequests, 2, label);
+    assert.deepEqual(retryNumbers, [1], label);
+  }
+});
+
+test("streamed capacity errors stop after the shared three-retry limit", async () => {
+  let responseRequests = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/models")) {
+      return Response.json({
+        data: [{ id: "grok-3-latest", aliases: ["grok-3-latest"] }],
+      });
+    }
+    responseRequests += 1;
+    return new Response(
+      `data: ${JSON.stringify({
+        type: "response.failed",
+        response: {
+          error: {
+            code: "model_capacity_exceeded",
+            message: "The model is currently at capacity.",
+          },
+        },
+      })}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  };
+
+  const retryNumbers = [];
+  await assert.rejects(
+    streamGrokChatReply(
+      "test-key",
+      [{ role: "user", content: "Please try again." }],
+      () => {},
+      undefined,
+      [],
+      false,
+      (retryNumber) => retryNumbers.push(retryNumber),
+    ),
+    /still experiencing high load or rate limits/,
+  );
+  assert.equal(responseRequests, 4);
+  assert.deepEqual(retryNumbers, [1, 2, 3]);
+});

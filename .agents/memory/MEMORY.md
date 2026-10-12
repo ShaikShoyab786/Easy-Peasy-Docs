@@ -6,3 +6,4 @@
 - [Guest import verification](guest-import-verification.md) — verify retry and account-isolation behavior through the API against development PostgreSQL, not a browser mock.
 - [Multipart chat request limits](multipart-chat-request-limits.md) — raise Multer field and part caps when adding chat metadata to attachment form submissions.
 - [xAI file retention](xai-file-retention.md) — omit `expires_after` for Knowledge Hub files so their saved file IDs remain usable beyond the one-hour default.
+- [xAI stream capacity errors](xai-stream-capacity-errors.md) — xAI can send capacity and rate-limit failures as SSE events after an HTTP 200 response; retry before emitting deltas.

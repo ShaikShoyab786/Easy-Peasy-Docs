@@ -41,6 +41,7 @@ export class GrokChatError extends Error {
     message: string,
     readonly statusCode: 502 | 503,
     readonly upstreamStatus?: number,
+    readonly retryableCapacity = false,
   ) {
     super(message);
     this.name = "GrokChatError";
@@ -196,10 +197,87 @@ function modelInput(
     : messages;
 }
 
-function isCapacityError(status: number, payload: unknown): boolean {
+function extractXaiErrorCode(payload: unknown): string | undefined {
+  if (!isRecord(payload)) return undefined;
+  if (typeof payload.code === "string") return payload.code;
+  if (isRecord(payload.error) && typeof payload.error.code === "string") {
+    return payload.error.code;
+  }
+  if (
+    isRecord(payload.response) &&
+    isRecord(payload.response.error) &&
+    typeof payload.response.error.code === "string"
+  ) {
+    return payload.response.error.code;
+  }
+  return undefined;
+}
+
+function extractXaiStatus(payload: unknown): number | undefined {
+  if (!isRecord(payload)) return undefined;
+  const response = isRecord(payload.response) ? payload.response : undefined;
+  const error = isRecord(payload.error) ? payload.error : undefined;
+  const nestedError =
+    response && isRecord(response.error) ? response.error : undefined;
+  for (const value of [
+    payload.status,
+    payload.status_code,
+    error?.status,
+    error?.status_code,
+    response?.status_code,
+    nestedError?.status,
+    nestedError?.status_code,
+  ]) {
+    const status = typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d{3}$/.test(value)
+        ? Number(value)
+        : undefined;
+    if (status !== undefined) return status;
+  }
+  return undefined;
+}
+
+function isRetryableCapacityError(status: number, payload: unknown): boolean {
   if (status === 429) return true;
-  const message = extractXaiErrorMessage(payload) ?? "";
-  return /model.{0,40}at capacity|capacity.{0,40}model|model_capacity|overloaded/i.test(message);
+  const message = [
+    extractXaiErrorMessage(payload) ?? "",
+    extractXaiErrorCode(payload) ?? "",
+  ].join(" ");
+  return /model.{0,40}at capacity|capacity.{0,40}model|model_capacity|overloaded|rate[_ -]?limit|too many requests/i.test(message);
+}
+
+type CapacityRetryState = { retries: number };
+
+async function waitForCapacityRetry(
+  retryState: CapacityRetryState,
+  signal: AbortSignal | undefined,
+  onCapacityRetry?: (retryNumber: number, message: string) => void,
+): Promise<boolean> {
+  if (retryState.retries >= CAPACITY_RETRY_DELAYS_MS.length) return false;
+
+  const retryNumber = retryState.retries + 1;
+  onCapacityRetry?.(retryNumber, CAPACITY_RETRY_MESSAGE);
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, CAPACITY_RETRY_DELAYS_MS[retryState.retries]);
+    const abort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new DOMException("The chat stream was aborted.", "AbortError"));
+    };
+    if (!signal) return;
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  retryState.retries += 1;
+  return true;
 }
 
 async function fetchResponseWithCapacityRetry(
@@ -207,8 +285,9 @@ async function fetchResponseWithCapacityRetry(
   body: Record<string, unknown>,
   signal?: AbortSignal,
   onCapacityRetry?: (retryNumber: number, message: string) => void,
+  retryState: CapacityRetryState = { retries: 0 },
 ): Promise<Response> {
-  for (let attempt = 0; ; attempt += 1) {
+  for (;;) {
     let response: Response;
     try {
       response = await fetch(`${XAI_API_BASE}/responses`, {
@@ -237,34 +316,14 @@ async function fetchResponseWithCapacityRetry(
 
     if (response.ok) return response;
     const failurePayload: unknown = await response.clone().json().catch(() => null);
-    if (!isCapacityError(response.status, failurePayload)) return response;
-    if (attempt >= CAPACITY_RETRY_DELAYS_MS.length) {
+    if (!isRetryableCapacityError(response.status, failurePayload)) return response;
+    if (!(await waitForCapacityRetry(retryState, signal, onCapacityRetry))) {
       throw new GrokChatError(
-        "xAI servers are still experiencing high load. Please try again shortly.",
+        "xAI servers are still experiencing high load or rate limits. Please try again shortly.",
         503,
         response.status,
       );
     }
-    const retryNumber = attempt + 1;
-    onCapacityRetry?.(retryNumber, CAPACITY_RETRY_MESSAGE);
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = () => signal?.removeEventListener("abort", abort);
-      const timer = setTimeout(() => {
-        cleanup();
-        resolve();
-      }, CAPACITY_RETRY_DELAYS_MS[attempt]);
-      const abort = () => {
-        clearTimeout(timer);
-        cleanup();
-        reject(new DOMException("The chat stream was aborted.", "AbortError"));
-      };
-      if (!signal) return;
-      if (signal.aborted) {
-        abort();
-        return;
-      }
-      signal.addEventListener("abort", abort, { once: true });
-    });
   }
 }
 
@@ -285,6 +344,13 @@ export function extractXaiErrorMessage(payload: unknown): string | undefined {
   }
   if (typeof payload.detail === "string") {
     return payload.detail;
+  }
+  if (isRecord(payload.response)) {
+    const responseError = payload.response.error;
+    if (typeof responseError === "string") return responseError;
+    if (isRecord(responseError) && typeof responseError.message === "string") {
+      return responseError.message;
+    }
   }
 
   return undefined;
@@ -486,17 +552,20 @@ export async function streamGrokChatReply(
     );
   }
 
-  const response = await fetchResponseWithCapacityRetry(
-    apiKey,
-    {
-      model: discovery.model,
-      input: modelInput(history, attachments, documentContextOnly),
-      store: false,
-      stream: true,
-    },
-    signal,
-    onCapacityRetry,
-  );
+  const retryState: CapacityRetryState = { retries: 0 };
+  for (;;) {
+    const response = await fetchResponseWithCapacityRetry(
+      apiKey,
+      {
+        model: discovery.model,
+        input: modelInput(history, attachments, documentContextOnly),
+        store: false,
+        stream: true,
+      },
+      signal,
+      onCapacityRetry,
+      retryState,
+    );
 
   if (!response.ok) {
     const failurePayload: unknown = await response.json().catch(() => null);
@@ -564,10 +633,16 @@ export async function streamGrokChatReply(
       return;
     }
     if (payload.type === "error" || payload.type === "response.failed") {
+      const upstreamStatus = extractXaiStatus(payload);
+      const retryableCapacity =
+        reply.length === 0 &&
+        isRetryableCapacityError(upstreamStatus ?? 0, payload);
       throw new GrokChatError(
         extractXaiErrorMessage(payload) ??
           "The assistant could not finish the reply. Please try again.",
-        502,
+        retryableCapacity ? 503 : 502,
+        upstreamStatus,
+        retryableCapacity,
       );
     }
   };
@@ -600,6 +675,19 @@ export async function streamGrokChatReply(
     buffer += decoder.decode();
     if (buffer) processLine(buffer.replace(/\r$/, ""));
     processEvent();
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    if (error instanceof GrokChatError && error.retryableCapacity) {
+      if (await waitForCapacityRetry(retryState, signal, onCapacityRetry)) {
+        continue;
+      }
+      throw new GrokChatError(
+        "xAI servers are still experiencing high load or rate limits. Please try again shortly.",
+        503,
+        error.upstreamStatus,
+      );
+    }
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -620,6 +708,7 @@ export async function streamGrokChatReply(
     );
   }
   return reply;
+  }
 }
 
 export { XAI_API_BASE };
