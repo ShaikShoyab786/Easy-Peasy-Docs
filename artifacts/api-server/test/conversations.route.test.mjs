@@ -716,6 +716,63 @@ test("document-only chat requires one attachment and passes document scope to Gr
   assert.equal(harness.model.receivedUploads, undefined);
 });
 
+test("document-only follow-up reuses the saved file and keeps prior chat history", async () => {
+  resetDatabase();
+  process.env.XAI_API_KEY = "route-test-key";
+  const previousMessages = [
+    {
+      id: "message-1",
+      conversationId: draftId,
+      role: "user",
+      content: "What does the policy say about reimbursement?",
+      createdAt: new Date("2025-01-01T00:00:00.000Z"),
+    },
+    {
+      id: "message-2",
+      conversationId: draftId,
+      role: "assistant",
+      content: "It lists reimbursement limits in section 4.",
+      createdAt: new Date("2025-01-01T00:00:00.001Z"),
+    },
+  ];
+  harness.db.state.conversations.set(draftId, {
+    id: draftId,
+    ownerId,
+    title: "Policy reimbursement",
+    createdAt: new Date("2025-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2025-01-01T00:00:00.001Z"),
+  });
+  harness.db.state.messages.push(...previousMessages.toReversed());
+  harness.db.state.knowledgeDocuments.set("document-1", {
+    id: "document-1",
+    ownerId,
+    conversationId: draftId,
+    status: "ready",
+    xaiFileId: "xai-saved-file-id",
+  });
+  harness.model = { reply: "The document does not specify a deadline." };
+
+  const response = await fetch(`${baseUrl}/api/conversations/${draftId}/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      content: "What is the appeal deadline?",
+      documentContextOnly: true,
+    }),
+  });
+
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.equal(harness.model.documentContextOnly, true);
+  assert.deepEqual(harness.model.receivedParts, [
+    { type: "input_file", file_id: "xai-saved-file-id" },
+  ]);
+  assert.deepEqual(harness.model.receivedHistory, [
+    { role: "user", content: "What does the policy say about reimbursement?" },
+    { role: "assistant", content: "It lists reimbursement limits in section 4." },
+    { role: "user", content: "What is the appeal deadline?" },
+  ]);
+});
+
 async function captureActualGrokStreamPayload({
   history,
   attachments = [],
@@ -788,6 +845,37 @@ test("document-only xAI payload grounds an unanswered question in its file attac
       { type: "input_file", file_id: "knowledge-file-123" },
     ],
   });
+});
+
+test("document-only xAI follow-up payload keeps prior messages and attaches the saved file", async () => {
+  const history = [
+    { role: "user", content: "What does the policy say about reimbursement?" },
+    { role: "assistant", content: "It lists reimbursement limits in section 4." },
+    { role: "user", content: "What is the appeal deadline?" },
+  ];
+  const { requestBody } = await captureActualGrokStreamPayload({
+    history,
+    attachments: [{ type: "input_file", file_id: "xai-saved-file-id" }],
+    documentContextOnly: true,
+    reply: "The document does not specify an appeal deadline.",
+  });
+
+  assert.deepEqual(requestBody.input, [
+    {
+      role: "developer",
+      content:
+        "Answer the user's question using only the attached document as your source. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the document does not contain the answer, say that it is not specified in the document. Do not guess.",
+    },
+    history[0],
+    history[1],
+    {
+      role: "user",
+      content: [
+        { type: "input_text", text: history[2].content },
+        { type: "input_file", file_id: "xai-saved-file-id" },
+      ],
+    },
+  ]);
 });
 
 test("ordinary xAI chat payload does not include the document-only instruction", async () => {

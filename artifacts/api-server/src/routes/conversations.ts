@@ -490,13 +490,6 @@ router.post(
       throw error;
     }
     const documentContextOnly = parsed.data.documentContextOnly === true;
-    if (documentContextOnly && attachments.length !== 1) {
-      res.status(400).json({
-        error: "Document-only chat requires exactly one attached document.",
-      });
-      return;
-    }
-
     const ownerId = getAuthenticatedUserId(req);
     const createIfMissing = parsed.data.createIfMissing === true;
     const conversation = await getOwnedConversation(conversationId, ownerId);
@@ -521,6 +514,16 @@ router.post(
       : undefined;
     if (documentContextOnly && !knowledgeDocument) {
       res.status(404).json({ error: "The attached Knowledge Hub document was not found." });
+      return;
+    }
+    if (
+      documentContextOnly &&
+      (attachments.length > 1 ||
+        (!knowledgeDocument?.xaiFileId && attachments.length !== 1))
+    ) {
+      res.status(400).json({
+        error: "Document-only chat requires exactly one attached document.",
+      });
       return;
     }
 
