@@ -55,7 +55,7 @@ test("guest Knowledge Hub is separate from recent chats and returns to the selec
 
 test("account Knowledge Hub uploads, searches, pins, chats with, and deletes documents", async ({ page }) => {
   await installAnalyticsStub(page);
-  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1&slowUpload=1");
   await page.getByTestId("button-knowledge-hub").click();
 
   const documentId = "a3333333-3333-4333-8333-333333333333";
@@ -110,6 +110,7 @@ test("account Knowledge Hub uploads, searches, pins, chats with, and deletes doc
   const question = "What is the reimbursement limit?";
   await page.getByTestId("input-chat-message").fill(question);
   await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("status-upload-progress")).toBeHidden();
   await expect(page.getByText(`A helpful reply to: ${question}`)).toBeVisible();
   await expect(page.getByTestId("badge-active-document-context")).toBeVisible();
   const chatRequest = await page.evaluate(() => {

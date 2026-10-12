@@ -722,7 +722,10 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       documentContextOnly,
     });
     let streamed = "";
-    if (attachments.length) setUploadProgress(0);
+    const trackAttachmentUploadProgress =
+      attachments.length > 0 && !documentContextOnly;
+    if (trackAttachmentUploadProgress) setUploadProgress(0);
+    else setUploadProgress(null);
     try {
       const response = await requestChatStream(
         `/api/conversations/${conversationId}/chat`,
@@ -735,7 +738,7 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
               : turn);
         },
         controller.signal,
-        setUploadProgress,
+        trackAttachmentUploadProgress ? setUploadProgress : undefined,
         (message) => setAccountError(message),
       );
       if (!Array.isArray(response.items) || response.items.length < 2) {
