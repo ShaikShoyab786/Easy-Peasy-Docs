@@ -204,6 +204,91 @@ test("a saved document can replace the context in an existing chat without losin
   await expect(page.getByTestId(`row-document-${documentId}`)).toBeVisible();
 });
 
+test("a failed document download keeps the existing context and allows retry", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1&switchFailures=1&failContentOnce=1");
+
+  const existingConversationId = "66666666-6666-4666-8666-666666666666";
+  const currentDocumentId = "a3333333-3333-4333-8333-333333333333";
+  const selectedDocumentId = "99999999-9999-4999-8999-999999999999";
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${selectedDocumentId}`).click();
+  await expect(page.getByTestId("status-document-feedback"))
+    .toContainText("Could not use Incident report.pdf in this chat.");
+
+  const linksAfterFailure = await page.evaluate(async ({ currentDocumentId, selectedDocumentId }) => {
+    const response = await fetch("/api/knowledge-documents");
+    const result = await response.json() as {
+      items: { id: string; conversationId: string | null }[];
+    };
+    return result.items
+      .filter((item) => item.id === currentDocumentId || item.id === selectedDocumentId)
+      .map(({ id, conversationId }) => ({ id, conversationId }));
+  }, { currentDocumentId, selectedDocumentId });
+  expect(linksAfterFailure).toEqual([
+    { id: currentDocumentId, conversationId: existingConversationId },
+    { id: selectedDocumentId, conversationId: null },
+  ]);
+  await page.getByTestId(`button-view-chat-${currentDocumentId}`).click();
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Operations policy.pdf");
+  await expect(page.getByTestId("chip-attachment-0"))
+    .toContainText("Operations policy.pdf");
+
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${selectedDocumentId}`).click();
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Incident report.pdf");
+  await expect(page.getByText("What does the policy cover?")).toBeVisible();
+});
+
+test("a failed context update keeps stored links unchanged and allows retry", async ({ page }) => {
+  await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1&switchFailures=1&failContextOnce=1");
+
+  const existingConversationId = "66666666-6666-4666-8666-666666666666";
+  const currentDocumentId = "a3333333-3333-4333-8333-333333333333";
+  const selectedDocumentId = "99999999-9999-4999-8999-999999999999";
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${selectedDocumentId}`).click();
+  await expect(page.getByTestId("status-document-feedback"))
+    .toContainText("Could not use Incident report.pdf in this chat.");
+
+  const linksAfterFailure = await page.evaluate(async ({ currentDocumentId, selectedDocumentId }) => {
+    const response = await fetch("/api/knowledge-documents");
+    const result = await response.json() as {
+      items: { id: string; conversationId: string | null }[];
+    };
+    return result.items
+      .filter((item) => item.id === currentDocumentId || item.id === selectedDocumentId)
+      .map(({ id, conversationId }) => ({ id, conversationId }));
+  }, { currentDocumentId, selectedDocumentId });
+  expect(linksAfterFailure).toEqual([
+    { id: currentDocumentId, conversationId: existingConversationId },
+    { id: selectedDocumentId, conversationId: null },
+  ]);
+  await page.getByTestId(`button-view-chat-${currentDocumentId}`).click();
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Operations policy.pdf");
+
+  await page.getByTestId("button-knowledge-hub").click();
+  await page.getByTestId(`button-use-document-${selectedDocumentId}`).click();
+  await expect(page.getByTestId("badge-active-document-context"))
+    .toContainText("Active Context: Incident report.pdf");
+  await expect(page.getByText("What does the policy cover?")).toBeVisible();
+  const linksAfterRetry = await page.evaluate(async ({ currentDocumentId, selectedDocumentId }) => {
+    const response = await fetch("/api/knowledge-documents");
+    const result = await response.json() as {
+      items: { id: string; conversationId: string | null }[];
+    };
+    return result.items
+      .filter((item) => item.id === currentDocumentId || item.id === selectedDocumentId)
+      .map(({ id, conversationId }) => ({ id, conversationId }));
+  }, { currentDocumentId, selectedDocumentId });
+  expect(linksAfterRetry).toEqual([
+    { id: currentDocumentId, conversationId: null },
+    { id: selectedDocumentId, conversationId: existingConversationId },
+  ]);
+});
+
 test("Knowledge Hub document search still works when analytics is unavailable", async ({ page }) => {
   await page.goto("/tests/chat-layout.fixture.html?mode=account&documents=1");
   await page.getByTestId("button-knowledge-hub").click();

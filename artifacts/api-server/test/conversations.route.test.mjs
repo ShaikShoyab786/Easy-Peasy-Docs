@@ -373,10 +373,19 @@ class UpdateQuery {
   }
 
   async where(condition) {
+    const id = condition?.column?.field === "id" ? condition.value : undefined;
+    if (this.table.name === "knowledge_documents") {
+      this.session.database.documentContextUpdateAttempts += 1;
+      if (
+        this.session.failAt === "document-context-selected-update" &&
+        this.session.database.documentContextUpdateAttempts === 2
+      ) {
+        throw new Error("Simulated selected-document update failure.");
+      }
+    }
     if (this.session.failAt === "update") {
       throw new Error("Simulated conversation update failure.");
     }
-    const id = condition?.column?.field === "id" ? condition.value : undefined;
     const conversation = this.session.database.conversations.get(id);
     if (conversation) Object.assign(conversation, this.valuesToUpdate);
     if (this.table.name === "knowledge_documents") {
@@ -398,6 +407,7 @@ function createFakeDatabase() {
     messages: [],
     messageSequence: 0,
     transactionAttempts: 0,
+    documentContextUpdateAttempts: 0,
     failAt: null,
   };
   const session = new FakeSession(database);
@@ -409,6 +419,7 @@ function createFakeDatabase() {
       database.messages = [];
       database.messageSequence = 0;
       database.transactionAttempts = 0;
+      database.documentContextUpdateAttempts = 0;
       database.failAt = failAt;
     },
     async transaction(callback) {
@@ -696,6 +707,67 @@ test("setting a conversation's document context switches documents without delet
   assert.equal(harness.db.state.conversations.has(sourceConversationId), true);
   assert.equal(harness.db.state.messages[0].content, "Keep this chat history");
   assert.equal(harness.db.state.knowledgeDocuments.size, 2);
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(currentDocumentId).conversationId,
+    null,
+  );
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(selectedDocumentId).conversationId,
+    targetConversationId,
+  );
+});
+
+test("a failed document-context update preserves the current link and can be retried", async () => {
+  resetDatabase("document-context-selected-update");
+  const targetConversationId = draftId;
+  const sourceConversationId = "c8f6f3a4-390f-4c25-a529-25dc45772f0f";
+  const currentDocumentId = "a3333333-3333-4333-8333-333333333333";
+  const selectedDocumentId = "b3333333-3333-4333-8333-333333333333";
+  harness.db.state.conversations.set(targetConversationId, {
+    id: targetConversationId,
+    ownerId,
+    title: "Existing chat",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  harness.db.state.knowledgeDocuments.set(currentDocumentId, {
+    id: currentDocumentId,
+    ownerId,
+    conversationId: targetConversationId,
+    status: "ready",
+    fileName: "current.pdf",
+  });
+  harness.db.state.knowledgeDocuments.set(selectedDocumentId, {
+    id: selectedDocumentId,
+    ownerId,
+    conversationId: sourceConversationId,
+    status: "ready",
+    fileName: "selected.pdf",
+  });
+
+  const request = () => fetch(
+    `${baseUrl}/api/conversations/${targetConversationId}/document-context`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ documentId: selectedDocumentId }),
+    },
+  );
+
+  const failedResponse = await request();
+  assert.equal(failedResponse.status, 500);
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(currentDocumentId).conversationId,
+    targetConversationId,
+  );
+  assert.equal(
+    harness.db.state.knowledgeDocuments.get(selectedDocumentId).conversationId,
+    sourceConversationId,
+  );
+
+  harness.db.state.failAt = null;
+  const retryResponse = await request();
+  assert.equal(retryResponse.status, 200);
   assert.equal(
     harness.db.state.knowledgeDocuments.get(currentDocumentId).conversationId,
     null,

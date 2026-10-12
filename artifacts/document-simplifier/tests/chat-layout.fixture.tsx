@@ -6,6 +6,7 @@ import "../src/index.css";
 
 const accountConversationId = "33333333-3333-4333-8333-333333333333";
 const documentConversationId = "66666666-6666-4666-8666-666666666666";
+const switchDocumentId = "99999999-9999-4999-8999-999999999999";
 const params = new URLSearchParams(window.location.search);
 const sampleConversation = {
   id: accountConversationId,
@@ -82,6 +83,16 @@ const sampleKnowledgeDocument: KnowledgeFixtureDocument = {
   status: "ready",
   createdAt: "2026-10-08T12:00:00.000Z",
 };
+const switchKnowledgeDocument: KnowledgeFixtureDocument = {
+  id: switchDocumentId,
+  conversationId: null,
+  fileName: "Incident report.pdf",
+  contentType: "application/pdf",
+  byteSize: new TextEncoder().encode("%PDF-1.7\nIncident report content.\n").byteLength,
+  isPinned: false,
+  status: "ready",
+  createdAt: "2026-10-09T12:00:00.000Z",
+};
 
 type ChatTestState = {
   requests: { path: string; method: string; body: unknown }[];
@@ -125,6 +136,9 @@ const storedFixtureDocuments = (() => {
 })();
 let fixtureDocuments: KnowledgeFixtureDocument[] = storedFixtureDocuments ??
   (params.get("documents") === "1" ? [sampleKnowledgeDocument] : []);
+if (params.get("switchFailures") === "1") {
+  fixtureDocuments = [sampleKnowledgeDocument, switchKnowledgeDocument];
+}
 function persistFixtureDocuments() {
   try {
     localStorage.setItem(
@@ -137,7 +151,10 @@ function persistFixtureDocuments() {
 }
 const fixtureDocumentBytes = new Map<string, Blob>([
   [sampleKnowledgeDocument.id, new Blob([sampleDocumentContent], { type: sampleKnowledgeDocument.contentType })],
+  [switchKnowledgeDocument.id, new Blob(["%PDF-1.7\nIncident report content.\n"], { type: switchKnowledgeDocument.contentType })],
 ]);
+let failContentOnce = params.get("failContentOnce") === "1";
+let failContextOnce = params.get("failContextOnce") === "1";
 const fixtureMessages = new Map<string, typeof sampleMessages>([
   [accountConversationId, sampleMessages],
   [documentConversationId, [
@@ -209,6 +226,10 @@ window.fetch = (input, init) => {
   }
 
   if (clearDocumentContextMatch && method === "PATCH") {
+    if (failContextOnce) {
+      failContextOnce = false;
+      return Promise.resolve(jsonResponse({ error: "The context could not be updated." }, 500));
+    }
     const contextBody = body as { documentId?: string } | undefined;
     const selected = fixtureDocuments.find((item) =>
       item.id === contextBody?.documentId && item.status === "ready",
@@ -292,6 +313,10 @@ window.fetch = (input, init) => {
 
   const documentContentMatch = pathname.match(/^\/api\/knowledge-documents\/([^/]+)\/content$/);
   if (documentContentMatch && method === "GET") {
+    if (documentContentMatch[1] === switchDocumentId && failContentOnce) {
+      failContentOnce = false;
+      return Promise.resolve(jsonResponse({ error: "The document could not be loaded." }, 503));
+    }
     const document = fixtureDocuments.find((item) => item.id === documentContentMatch[1]);
     const content = fixtureDocumentBytes.get(documentContentMatch[1]);
     if (!document || !content || document.status !== "ready") {
