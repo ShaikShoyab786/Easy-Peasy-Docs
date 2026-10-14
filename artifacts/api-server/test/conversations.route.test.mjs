@@ -567,7 +567,7 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.log = { warn() {}, error() {} };
+    req.log = { info() {}, warn() {}, error() {} };
     next();
   });
   app.use("/api", route);

@@ -7,4 +7,4 @@ Keep the existing Knowledge Hub UI, document visibility, and upload/chat workflo
 
 **Why:** The user explicitly asked to reduce recurring long-document prompt costs without changing the user experience, warned that charts and table data must not be lost during indexing, and selected Gemini Embedding 2 after `text-embedding-004` was shut down.
 
-**How to apply:** Validate the authenticated upload/chat route, not only helper calls, before declaring live RAG functional. Keep original files and legacy references until the Gemini-backed route is confirmed.
+**How to apply:** Validate the authenticated upload/chat route, not only helper calls, before declaring live RAG functional. After Gemini access is corrected, ready documents with no Gemini chunks require an explicit re-index; changing the secret alone does not backfill them. Keep original files and legacy references until the Gemini-backed route is confirmed.

@@ -632,29 +632,73 @@ router.post(
       { role: "user" as const, content },
     ];
     let retrievedDocumentContext: string | undefined;
+    let retrievalMode:
+      | "not_document_chat"
+      | "vector_chunks"
+      | "no_matching_chunks"
+      | "embedding_key_missing"
+      | "retrieval_error" = documentContextOnly
+        ? "no_matching_chunks"
+        : "not_document_chat";
+    let retrievedChunkCount = 0;
+    let retrievedContextChars = 0;
+    let retrievedSourcePages: number[] = [];
     const embeddingApiKey = process.env.GEMINI_API_KEY?.trim();
-    if (documentContextOnly && knowledgeDocument && embeddingApiKey) {
-      try {
-        const passages = await searchKnowledgeDocumentChunks({
-          embeddingApiKey,
-          documentId: knowledgeDocument.id,
-          ownerId,
-          query: content,
-          limit: 8,
-        });
-        if (passages.length) {
-          retrievedDocumentContext = passages
-            .map((passage) =>
-              `[${passage.contentKind}${passage.sourcePage ? `, page ${passage.sourcePage}` : ""}]\n${passage.content}`,
-            )
-            .join("\n\n---\n\n");
+    if (documentContextOnly && knowledgeDocument) {
+      if (!embeddingApiKey) {
+        retrievalMode = "embedding_key_missing";
+      } else {
+        try {
+          const passages = await searchKnowledgeDocumentChunks({
+            embeddingApiKey,
+            documentId: knowledgeDocument.id,
+            ownerId,
+            query: content,
+            limit: 8,
+          });
+          retrievedChunkCount = passages.length;
+          retrievedContextChars = passages.reduce(
+            (total, passage) => total + passage.content.length,
+            0,
+          );
+          retrievedSourcePages = [...new Set(
+            passages.flatMap((passage) =>
+              passage.sourcePage === null ? [] : [passage.sourcePage],
+            ),
+          )].sort((a, b) => a - b);
+          if (passages.length) {
+            retrievedDocumentContext = passages
+              .map((passage) =>
+                `[${passage.contentKind}${passage.sourcePage ? `, page ${passage.sourcePage}` : ""}]\n${passage.content}`,
+              )
+              .join("\n\n---\n\n");
+            retrievalMode = "vector_chunks";
+          } else {
+            retrievalMode = "no_matching_chunks";
+          }
+        } catch (error) {
+          retrievalMode = "retrieval_error";
+          req.log.warn(
+            {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: error instanceof Error ? error.message.slice(0, 240) : "Unknown error",
+            },
+            "Knowledge Hub retrieval failed; using the saved file reference",
+          );
         }
-      } catch (error) {
-        req.log.warn(
-          { errorName: error instanceof Error ? error.name : "UnknownError" },
-          "Knowledge Hub retrieval failed; using the saved file reference",
-        );
       }
+    }
+    if (documentContextOnly) {
+      req.log.info(
+        {
+          retrievalMode,
+          retrievedChunkCount,
+          retrievedContextChars,
+          retrievedSourcePages,
+          sentSavedFileReference: !retrievedDocumentContext && Boolean(knowledgeDocument?.xaiFileId),
+        },
+        "Knowledge Hub chat context selected",
+      );
     }
     const streamRequested = wantsChatStream(req.get("accept"));
     let assistantReply: string;
