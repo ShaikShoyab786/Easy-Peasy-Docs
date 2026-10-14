@@ -19,3 +19,4 @@
 
 export * from "./conversations";
 export * from "./knowledgeDocuments";
+export * from "./knowledgeDocumentChunks";
