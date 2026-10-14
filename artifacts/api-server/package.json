@@ -7,8 +7,9 @@
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "evaluate:rag": "mkdir -p .cache && pnpm exec esbuild scripts/evaluateKnowledgeRag.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire } from 'node:module'; globalThis.require = createRequire(import.meta.url);\" --outfile=.cache/rag-evaluation.mjs && node .cache/rag-evaluation.mjs"
   },
   "dependencies": {
     "@clerk/express": "^2.1.76",
