@@ -38,7 +38,7 @@ const mockModules = new Map([
         harness.visualPages.push(page);
         if (harness.visualFailure) throw new Error("simulated visual extraction failure");
         return page === 1
-          ? "Page 1\\n\\n## Chart\\nQuarterly revenue; Q1 120, Q2 180.\\n\\n## Table\\n| Product | Units |\\n| --- | --- |\\n| Widgets | 42 |"
+          ? "Page 1\\n\\n## Chart\\nQuarterly revenue; Q1 120, Q2 180.\\n\\n## Table\\n| Product | Units |\\n| --- | --- |\\n| Widgets | 42 |\\n\\n## Diagram\\nA process connects intake, review, and approval.\\n\\n## Infographic\\nThree milestones appear on a timeline."
           : "Page 2\\nTable: Regional units\\n| Region | Units |\\n| North | 17 |";
       }
     `,
@@ -210,6 +210,14 @@ test("PDF text and visual chart/table content persist as searchable page-specifi
   assert.ok(
     persistedRows.some((row) => row.contentKind === "table" && row.sourcePage === 2),
     "table content should retain page-two provenance",
+  );
+  assert.ok(
+    persistedRows.some((row) => row.contentKind === "diagram" && row.sourcePage === 1),
+    "diagram content should retain its identity and page provenance",
+  );
+  assert.ok(
+    persistedRows.some((row) => row.contentKind === "infographic" && row.sourcePage === 1),
+    "infographic content should retain its identity and page provenance",
   );
   assert.ok(
     persistedRows.every((row) => row.embedding.length === 768),

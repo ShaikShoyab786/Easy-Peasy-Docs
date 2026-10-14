@@ -1,6 +1,6 @@
 export type KnowledgeChunkInput = {
   content: string;
-  contentKind: "text" | "table" | "chart";
+  contentKind: "text" | "table" | "chart" | "diagram" | "infographic";
   sourcePage: number | null;
 };
 

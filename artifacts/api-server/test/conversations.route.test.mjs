@@ -938,17 +938,34 @@ test("document-only chat uses scoped retrieved passages instead of the saved fil
   });
   harness.model = {
     reply: "Revenue was 42 million.",
-    retrievalResults: [{
-      content: "Revenue was $42 million in 2025.",
-      contentKind: "chart",
-      sourcePage: 6,
-    }],
+    retrievalResults: [
+      {
+        content: "The process connects intake, review, and approval.",
+        contentKind: "diagram",
+        sourcePage: 6,
+      },
+      {
+        content: "Three milestones appear on a timeline.",
+        contentKind: "infographic",
+        sourcePage: 8,
+      },
+    ],
   };
   const response = await sendFirstTurnWithAttachments([], true);
   assert.equal(response.status, 201, await response.clone().text());
   assert.deepEqual(harness.model.receivedParts, []);
-  assert.match(harness.model.documentContext, /chart, page 6/);
-  assert.match(harness.model.documentContext, /Revenue was \$42 million/);
+  assert.ok(
+    harness.model.documentContext.includes("[diagram, page 6]"),
+    "retrieved visual context should preserve the diagram identity and source page",
+  );
+  assert.ok(
+    harness.model.documentContext.includes("The process connects intake, review, and approval."),
+    "retrieved visual context should include the diagram description",
+  );
+  assert.ok(
+    harness.model.documentContext.includes("[infographic, page 8]"),
+    "retrieved visual context should preserve the infographic identity and source page",
+  );
   assert.equal(harness.model.retrievalRequest.documentId, "document-rag");
   assert.equal(harness.model.retrievalRequest.ownerId, ownerId);
 });

@@ -21,16 +21,28 @@ const EMBEDDING_BATCH_SIZE = 64;
 
 function extractVisualSections(
   extracted: string,
-): Array<{ content: string; contentKind: "chart" | "table" }> {
-  const sections: Array<{ content: string; contentKind: "chart" | "table" }> = [];
-  let current: { content: string; contentKind: "chart" | "table" } | undefined;
+): Array<{ content: string; contentKind: "chart" | "table" | "diagram" | "infographic" }> {
+  const sections: Array<{
+    content: string;
+    contentKind: "chart" | "table" | "diagram" | "infographic";
+  }> = [];
+  let current: (typeof sections)[number] | undefined;
 
   for (const line of extracted.split(/\r?\n/)) {
-    const heading = line.match(/^\s{0,3}(?:#{1,6}\s*)?(chart|graph|table)\b(?:\s+\d+)?\s*:?\s*(.*)$/i);
+    const heading = line.match(
+      /^\s{0,3}(?:#{1,6}\s*)?(charts?|graphs?|tables?|diagrams?|infographics?|flowcharts?)\b(?:\s+\d+)?\s*:?\s*(.*)$/i,
+    );
     if (heading) {
+      const category = heading[1]?.toLowerCase().replace(/s$/, "");
       current = {
         content: heading[2]?.trim() ?? "",
-        contentKind: heading[1]?.toLowerCase() === "table" ? "table" : "chart",
+        contentKind: category === "table"
+          ? "table"
+          : category === "diagram" || category === "flowchart"
+            ? "diagram"
+            : category === "infographic"
+              ? "infographic"
+              : "chart",
       };
       sections.push(current);
     } else if (current) {
@@ -139,11 +151,12 @@ async function extractVisualContent(
           role: "user",
           content:
             `Inspect page ${page} of "${fileName}" visually. If it contains charts, graphs, ` +
-            "tables, diagrams, or other image-based information, transcribe their titles, labels, " +
+            "tables, diagrams, infographics, or other image-based information, transcribe their titles, labels, " +
             "units, row/column relationships, legible values and trends. Preserve exact values; " +
             "mark unreadable values as unclear and do not infer them. Return concise Markdown with " +
-            `the heading "Page ${page}". Put each chart or graph under its own "## Chart" heading ` +
-            'and each table under its own "## Table" heading; use both headings when both are present. ' +
+            `the heading "Page ${page}". Put each chart or graph under its own "## Chart" heading, ` +
+            'each table under "## Table", each diagram or flowchart under "## Diagram", and each ' +
+            'infographic under "## Infographic"; keep these categories distinct and use every applicable heading. ' +
             "Format tables as Markdown tables with a header separator row. " +
             "If there is no meaningful visual information, return exactly NONE.",
         }],
