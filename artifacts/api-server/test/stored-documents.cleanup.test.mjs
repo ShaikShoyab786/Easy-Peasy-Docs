@@ -483,6 +483,17 @@ test("backfill reports safe failures and retries them on a later run", async () 
     createdAt: new Date("2026-10-09T12:00:00.000Z"),
     bytes,
   });
+  const existingChunk = {
+    chunkId: "previous-index",
+    documentId: "retry-index",
+    ownerId: "owner-a",
+    embeddingModel: "models/previous",
+    contentKind: "text",
+    sourcePage: 1,
+    content: "previously indexed content",
+    embedding: [0.2],
+  };
+  harness.chunks.push(existingChunk);
   harness.indexFailures.add("retry-index");
   const failures = [];
 
@@ -500,7 +511,7 @@ test("backfill reports safe failures and retries them on a later run", async () 
   assert.equal(JSON.stringify(failures).includes(bytes.toString()), false);
   assert.equal(harness.storage.objects.has(objectPath), true);
   assert.equal(harness.rows.get("retry-index").xaiFileId, "xai-retry-index");
-  assert.equal(harness.chunks.length, 0);
+  assert.deepEqual(harness.chunks, [existingChunk]);
 
   harness.indexFailures.clear();
   const retriedRun = await backfillMissingKnowledgeDocumentIndexes({

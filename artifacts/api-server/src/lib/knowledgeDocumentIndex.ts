@@ -100,7 +100,9 @@ async function extractVisualContent(
       ["draw", "-F", "text", "-o", "-", pdfPath],
       { maxBuffer: 32 * 1024 * 1024, timeout: 60_000 },
     );
-    const pageCount = textOutput.split("\f").length;
+    const textPages = textOutput.split("\f");
+    while (textPages.length > 1 && !textPages.at(-1)?.trim()) textPages.pop();
+    const pageCount = textPages.length;
     const chunks: KnowledgeChunkInput[] = [];
     for (let page = 1; page <= pageCount; page += 1) {
       await execFileAsync(
