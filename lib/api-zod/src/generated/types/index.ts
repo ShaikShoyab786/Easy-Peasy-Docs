@@ -34,6 +34,8 @@ export * from './healthStatus';
 export * from './knowledgeDocument';
 export * from './knowledgeDocumentChatSession';
 export * from './knowledgeDocumentList';
+export * from './knowledgeDocumentListItem';
+export * from './knowledgeDocumentListItemStatus';
 export * from './knowledgeDocumentPinInput';
 export * from './knowledgeDocumentStatus';
 export * from './knowledgeDocumentUploadRequest';

@@ -5,8 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { KnowledgeDocument } from './knowledgeDocument';
+import type { KnowledgeDocumentListItem } from './knowledgeDocumentListItem';
 
 export interface KnowledgeDocumentList {
-  items: KnowledgeDocument[];
+  items: KnowledgeDocumentListItem[];
 }

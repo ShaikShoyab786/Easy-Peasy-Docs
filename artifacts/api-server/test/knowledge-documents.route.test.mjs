@@ -28,7 +28,7 @@ const mockModules = new Map([
       };
       export const knowledgeDocumentChunksTable = {
         name: "knowledge_document_chunks",
-        id: column("chunkId"),
+        id: column("id"),
         documentId: column("documentId"),
         ownerId: column("ownerId"),
         embeddingModel: column("embeddingModel"),
@@ -54,7 +54,7 @@ const mockModules = new Map([
       };
       export const knowledgeDocumentChunksTable = {
         name: "knowledge_document_chunks",
-        id: column("chunkId"),
+        id: column("id"),
         documentId: column("documentId"),
         ownerId: column("ownerId"),
         embeddingModel: column("embeddingModel"),
@@ -111,13 +111,14 @@ const mockModules = new Map([
         status: z.enum(["pending_upload", "ready"]),
         createdAt: z.coerce.date(),
       });
+      const listItem = document.extend({ semanticSearchIndexed: z.boolean() });
       export const CompleteKnowledgeDocumentUploadParams = z.object({ documentId: z.coerce.string().uuid() });
       export const CompleteKnowledgeDocumentUploadResponse = document;
       export const DeleteKnowledgeDocumentParams = z.object({ documentId: z.coerce.string().uuid() });
       export const GetKnowledgeDocumentContentParams = z.object({ documentId: z.coerce.string().uuid() });
       export const OpenKnowledgeDocumentChatParams = z.object({ documentId: z.coerce.string().uuid() });
       export const OpenKnowledgeDocumentChatResponse = z.object({ conversationId: z.string().uuid() });
-      export const ListKnowledgeDocumentsResponse = z.object({ items: z.array(document) });
+      export const ListKnowledgeDocumentsResponse = z.object({ items: z.array(listItem) });
       export const RequestKnowledgeDocumentUploadUrlBody = z.object({
         fileName: z.string().min(1).max(255),
         byteSize: z.number().int().min(1).max(10485760),
@@ -213,10 +214,16 @@ function matches(row, condition) {
 
 function createFakeDatabase() {
   const rows = new Map();
+  const chunks = new Map();
   const conversations = new Map();
-  const tableRows = (table) => table.name === "chat_conversations" ? conversations : rows;
+  const tableRows = (table) => {
+    if (table.name === "chat_conversations") return conversations;
+    if (table.name === "knowledge_document_chunks") return chunks;
+    return rows;
+  };
   return {
     rows,
+    chunks,
     conversations,
     select() {
       return {
@@ -422,6 +429,9 @@ test("documents are isolated by account and support upload, pin, read, and delet
     bytes: pdfBytes,
     contentType: "application/pdf",
   });
+  const pendingList = await (await api("/knowledge-documents")).json();
+  assert.equal(pendingList.items[0].status, "pending_upload");
+  assert.equal(pendingList.items[0].semanticSearchIndexed, false);
 
   const complete = await api(`/knowledge-documents/${document.id}/complete`, {
     method: "POST",
@@ -434,6 +444,12 @@ test("documents are isolated by account and support upload, pin, read, and delet
   assert.deepEqual(harness.uploads, ["policy.pdf"]);
   assert.deepEqual(harness.indexCalls, [document.id]);
   assert.equal(harness.db.conversations.size, 1);
+  harness.db.chunks.set(randomUUID(), {
+    documentId: document.id,
+    ownerId: "knowledge-owner-a",
+    embeddingModel: "models/gemini-embedding-2",
+    content: "This private chunk must never appear in the list response.",
+  });
 
   const firstOpen = await api(`/knowledge-documents/${document.id}/chat`, {
     method: "POST",
@@ -446,7 +462,11 @@ test("documents are isolated by account and support upload, pin, read, and delet
   assert.equal(harness.db.conversations.size, 1);
 
   const listed = await api("/knowledge-documents");
-  assert.equal((await listed.json()).items.length, 1);
+  const listedItems = (await listed.json()).items;
+  assert.equal(listedItems.length, 1);
+  assert.equal(listedItems[0].semanticSearchIndexed, true);
+  assert.equal("content" in listedItems[0], false);
+  assert.equal("embeddingModel" in listedItems[0], false);
 
   const content = await api(`/knowledge-documents/${document.id}/content`);
   assert.equal(content.status, 200);
@@ -498,6 +518,17 @@ test("failed Gemini indexing keeps the document ready with its saved xAI fallbac
     assert.equal(ready.status, "ready");
     assert.equal(harness.db.rows.get(document.id).xaiFileId, "xai-file-2");
     assert.ok(harness.warnings.some(({ message }) => message.includes("Gemini indexing failed")));
+    harness.db.chunks.set(randomUUID(), {
+      documentId: document.id,
+      ownerId: "knowledge-owner-a",
+      embeddingModel: "legacy-embedding-model",
+      content: "A chunk from an inactive model.",
+    });
+    const listed = await (await api("/knowledge-documents")).json();
+    const fallback = listed.items.find((item) => item.id === document.id);
+    assert.equal(fallback.semanticSearchIndexed, false);
+    assert.equal(JSON.stringify(fallback).includes("simulated Gemini embedding denial"), false);
+    assert.equal("content" in fallback, false);
   } finally {
     harness.indexFailure = false;
   }

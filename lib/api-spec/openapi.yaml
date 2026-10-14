@@ -835,8 +835,36 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/KnowledgeDocument"
+            $ref: "#/components/schemas/KnowledgeDocumentListItem"
       required: [items]
+    KnowledgeDocumentListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: ["string", "null"]
+          format: uuid
+        fileName:
+          type: string
+        contentType:
+          type: string
+        byteSize:
+          type: integer
+          format: int32
+        isPinned:
+          type: boolean
+        status:
+          type: string
+          enum: [pending_upload, ready]
+        semanticSearchIndexed:
+          type: boolean
+          description: Whether the active embedding model has indexed this document
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, conversationId, fileName, contentType, byteSize, isPinned, status, semanticSearchIndexed, createdAt]
     KnowledgeDocumentUploadRequest:
       type: object
       additionalProperties: false

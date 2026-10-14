@@ -96,7 +96,31 @@ router.get("/knowledge-documents", requireAuth, async (req, res) => {
     .from(knowledgeDocumentsTable)
     .where(eq(knowledgeDocumentsTable.ownerId, ownerId))
     .orderBy(desc(knowledgeDocumentsTable.createdAt));
-  res.json(ListKnowledgeDocumentsResponse.parse({ items }));
+  const indexedDocuments = items.length
+    ? await db
+        .select({ documentId: knowledgeDocumentChunksTable.documentId })
+        .from(knowledgeDocumentChunksTable)
+        .where(
+          and(
+            eq(knowledgeDocumentChunksTable.ownerId, ownerId),
+            eq(
+              knowledgeDocumentChunksTable.embeddingModel,
+              KNOWLEDGE_EMBEDDING_MODEL,
+            ),
+          ),
+        )
+    : [];
+  const indexedDocumentIds = new Set(
+    indexedDocuments.map(({ documentId }) => documentId),
+  );
+  res.json(
+    ListKnowledgeDocumentsResponse.parse({
+      items: items.map((item) => ({
+        ...item,
+        semanticSearchIndexed: indexedDocumentIds.has(item.id),
+      })),
+    }),
+  );
 });
 
 router.post(

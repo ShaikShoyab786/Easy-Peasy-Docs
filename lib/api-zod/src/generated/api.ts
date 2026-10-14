@@ -256,6 +256,7 @@ export const ListKnowledgeDocumentsResponse = zod.object({
   "byteSize": zod.number().int(),
   "isPinned": zod.boolean(),
   "status": zod.enum(['pending_upload', 'ready']),
+  "semanticSearchIndexed": zod.boolean().describe('Whether the active embedding model has indexed this document'),
   "createdAt": zod.coerce.date()
 }))
 })

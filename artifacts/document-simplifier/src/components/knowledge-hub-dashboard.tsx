@@ -102,7 +102,17 @@ export function KnowledgeHubDashboard({
 }: KnowledgeHubDashboardProps) {
   const queryClient = useQueryClient();
   const documentsQuery = useListKnowledgeDocuments({
-    query: { queryKey: getListKnowledgeDocumentsQueryKey(), enabled: !isGuest },
+    query: {
+      queryKey: getListKnowledgeDocumentsQueryKey(),
+      enabled: !isGuest,
+      refetchInterval: (query) =>
+        query.state.data?.items.some(
+          (document) =>
+            document.status === "ready" && !document.semanticSearchIndexed,
+        )
+          ? 30_000
+          : false,
+    },
   });
   const requestUpload = useRequestKnowledgeDocumentUploadUrl();
   const completeUpload = useCompleteKnowledgeDocumentUpload();
@@ -432,7 +442,7 @@ export function KnowledgeHubDashboard({
               </div>
               <div className="kh-table-wrap">
                 <table className="kh-documents-table">
-                  <thead><tr><th scope="col">Document</th><th scope="col">Added</th><th scope="col">Size</th><th scope="col">Status</th><th scope="col"><span className="kh-sr-only">Actions</span></th></tr></thead>
+                  <thead><tr><th scope="col">Document</th><th scope="col">Added</th><th scope="col">Size</th><th scope="col">Semantic search</th><th scope="col">Status</th><th scope="col"><span className="kh-sr-only">Actions</span></th></tr></thead>
                   <tbody>
                     {filteredDocuments.map((document) => (
                       <tr key={document.id} data-testid={`row-document-${document.id}`}>
@@ -442,6 +452,23 @@ export function KnowledgeHubDashboard({
                         </td>
                         <td className="kh-date-cell">{formatDate(document.createdAt)}</td>
                         <td className="kh-size-cell">{formatBytes(document.byteSize)}</td>
+                        <td><span
+                          className={`kh-search-status ${
+                            document.status !== "ready"
+                              ? "kh-search-status-pending"
+                              : document.semanticSearchIndexed
+                                ? "kh-search-status-ready"
+                                : "kh-search-status-fallback"
+                          }`}
+                          data-testid={`status-semantic-search-${document.id}`}
+                        >
+                          <i />
+                          {document.status !== "ready"
+                            ? "Unavailable"
+                            : document.semanticSearchIndexed
+                              ? "Search ready"
+                              : "Using saved file"}
+                        </span></td>
                         <td><span className={`kh-status-pill ${document.status === "ready" ? "kh-status-ready" : "kh-status-pending"}`} data-testid={`status-document-${document.id}`}>
                           <i />{document.status === "ready" ? "Ready" : "Upload incomplete"}
                         </span></td>

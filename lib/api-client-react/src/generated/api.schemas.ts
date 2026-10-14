@@ -80,8 +80,30 @@ export interface KnowledgeDocumentChatSession {
   conversationId: string;
 }
 
+export type KnowledgeDocumentListItemStatus = typeof KnowledgeDocumentListItemStatus[keyof typeof KnowledgeDocumentListItemStatus];
+
+
+export const KnowledgeDocumentListItemStatus = {
+  pending_upload: 'pending_upload',
+  ready: 'ready',
+} as const;
+
+export interface KnowledgeDocumentListItem {
+  id: string;
+  /** @nullable */
+  conversationId: string | null;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  isPinned: boolean;
+  status: KnowledgeDocumentListItemStatus;
+  /** Whether the active embedding model has indexed this document */
+  semanticSearchIndexed: boolean;
+  createdAt: string;
+}
+
 export interface KnowledgeDocumentList {
-  items: KnowledgeDocument[];
+  items: KnowledgeDocumentListItem[];
 }
 
 export interface KnowledgeDocumentUploadRequest {
