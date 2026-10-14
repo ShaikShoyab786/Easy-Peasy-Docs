@@ -19,6 +19,28 @@ export const KNOWLEDGE_EMBEDDING_MODEL = "models/gemini-embedding-2";
 const EMBEDDING_DIMENSIONS = 768;
 const EMBEDDING_BATCH_SIZE = 64;
 
+function extractVisualSections(
+  extracted: string,
+): Array<{ content: string; contentKind: "chart" | "table" }> {
+  const sections: Array<{ content: string; contentKind: "chart" | "table" }> = [];
+  let current: { content: string; contentKind: "chart" | "table" } | undefined;
+
+  for (const line of extracted.split(/\r?\n/)) {
+    const heading = line.match(/^\s{0,3}(?:#{1,6}\s*)?(chart|graph|table)\b(?:\s+\d+)?\s*:?\s*(.*)$/i);
+    if (heading) {
+      current = {
+        content: heading[2]?.trim() ?? "",
+        contentKind: heading[1]?.toLowerCase() === "table" ? "table" : "chart",
+      };
+      sections.push(current);
+    } else if (current) {
+      current.content += `${current.content ? "\n" : ""}${line}`;
+    }
+  }
+
+  return sections.filter((section) => section.content.trim());
+}
+
 export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "knowledge-pdf-"));
   const pdfPath = path.join(directory, "source.pdf");
@@ -120,7 +142,10 @@ async function extractVisualContent(
             "tables, diagrams, or other image-based information, transcribe their titles, labels, " +
             "units, row/column relationships, legible values and trends. Preserve exact values; " +
             "mark unreadable values as unclear and do not infer them. Return concise Markdown with " +
-            `the heading "Page ${page}". If there is no meaningful visual information, return exactly NONE.`,
+            `the heading "Page ${page}". Put each chart or graph under its own "## Chart" heading ` +
+            'and each table under its own "## Table" heading; use both headings when both are present. ' +
+            "Format tables as Markdown tables with a header separator row. " +
+            "If there is no meaningful visual information, return exactly NONE.",
         }],
         [{
           type: "input_image",
@@ -128,9 +153,16 @@ async function extractVisualContent(
         }],
       );
       if (extracted.trim() && !/^NONE[.!]?$/i.test(extracted.trim())) {
-        const kind: KnowledgeChunkInput["contentKind"] =
-          /(?:table|row|column|header)/i.test(extracted) ? "table" : "chart";
-        chunks.push(...chunkKnowledgePage(extracted, page, kind));
+        const sections = extractVisualSections(extracted);
+        if (sections.length) {
+          for (const section of sections) {
+            chunks.push(...chunkKnowledgePage(section.content, page, section.contentKind));
+          }
+        } else {
+          const kind: KnowledgeChunkInput["contentKind"] =
+            /(?:table|row|column|header)/i.test(extracted) ? "table" : "chart";
+          chunks.push(...chunkKnowledgePage(extracted, page, kind));
+        }
       }
     }
     return chunks;

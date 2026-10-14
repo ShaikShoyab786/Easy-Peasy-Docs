@@ -38,7 +38,7 @@ const mockModules = new Map([
         harness.visualPages.push(page);
         if (harness.visualFailure) throw new Error("simulated visual extraction failure");
         return page === 1
-          ? "Page 1\\nChart: Quarterly revenue; Q1 120, Q2 180."
+          ? "Page 1\\n\\n## Chart\\nQuarterly revenue; Q1 120, Q2 180.\\n\\n## Table\\n| Product | Units |\\n| --- | --- |\\n| Widgets | 42 |"
           : "Page 2\\nTable: Regional units\\n| Region | Units |\\n| North | 17 |";
       }
     `,
@@ -115,6 +115,7 @@ const harness = {
   embeddingFailure: false,
   embeddedChartData: false,
   embeddedTableData: false,
+  embeddedMixedTableData: false,
 };
 
 before(async () => {
@@ -130,6 +131,7 @@ before(async () => {
     const embeddedTexts = requests.map((request) => request.content.parts[0].text);
     harness.embeddedChartData ||= embeddedTexts.some((text) => text.includes("Q2 180"));
     harness.embeddedTableData ||= embeddedTexts.some((text) => text.includes("North | 17"));
+    harness.embeddedMixedTableData ||= embeddedTexts.some((text) => text.includes("Widgets | 42"));
     return {
       ok: true,
       status: 200,
@@ -161,6 +163,7 @@ function resetHarness() {
   harness.embeddingFailure = false;
   harness.embeddedChartData = false;
   harness.embeddedTableData = false;
+  harness.embeddedMixedTableData = false;
 }
 
 function makeIndexInput(bytes, persistChunks) {
@@ -201,6 +204,10 @@ test("PDF text and visual chart/table content persist as searchable page-specifi
     "chart content should retain page-one provenance",
   );
   assert.ok(
+    persistedRows.some((row) => row.contentKind === "table" && row.sourcePage === 1),
+    "table content should retain page-one provenance when it shares a page with a chart",
+  );
+  assert.ok(
     persistedRows.some((row) => row.contentKind === "table" && row.sourcePage === 2),
     "table content should retain page-two provenance",
   );
@@ -210,6 +217,7 @@ test("PDF text and visual chart/table content persist as searchable page-specifi
   );
   assert.equal(harness.embeddedChartData, true);
   assert.equal(harness.embeddedTableData, true);
+  assert.equal(harness.embeddedMixedTableData, true);
 });
 
 test("visual extraction failures do not persist or replace existing chunks", async () => {
