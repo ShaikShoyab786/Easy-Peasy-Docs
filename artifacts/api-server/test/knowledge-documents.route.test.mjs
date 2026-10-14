@@ -26,6 +26,12 @@ const mockModules = new Map([
         status: column("status"),
         xaiFileId: column("xaiFileId"),
       };
+      export const knowledgeDocumentChunksTable = {
+        name: "knowledge_document_chunks",
+        id: column("chunkId"),
+        documentId: column("documentId"),
+        ownerId: column("ownerId"),
+      };
       export const conversationsTable = {
         name: "chat_conversations",
         id: column("id"),
@@ -44,6 +50,12 @@ const mockModules = new Map([
         createdAt: column("createdAt"),
         status: column("status"),
         xaiFileId: column("xaiFileId"),
+      };
+      export const knowledgeDocumentChunksTable = {
+        name: "knowledge_document_chunks",
+        id: column("chunkId"),
+        documentId: column("documentId"),
+        ownerId: column("ownerId"),
       };
       export const conversationsTable = {
         name: "chat_conversations",
@@ -67,6 +79,17 @@ const mockModules = new Map([
         const harness = globalThis.__knowledgeDocumentsHarness;
         harness.uploads.push(attachment.filename);
         return "xai-file-" + harness.uploads.length;
+      }
+    `,
+  ],
+  [
+    "../lib/knowledgeDocumentIndex",
+    `
+      export async function indexKnowledgeDocument(input) {
+        const harness = globalThis.__knowledgeDocumentsHarness;
+        harness.indexCalls.push(input.documentId);
+        await input.persistChunks?.([]);
+        return { chunkCount: 1, embeddingModel: "test-embedding" };
       }
     `,
   ],
@@ -209,6 +232,9 @@ function createFakeDatabase() {
                 for() {
                   return Promise.resolve(results());
                 },
+                limit(count) {
+                  return Promise.resolve(results().slice(0, count));
+                },
               });
             },
           };
@@ -303,6 +329,7 @@ before(async () => {
     },
     errors: [],
     uploads: [],
+    indexCalls: [],
   };
   globalThis.__knowledgeDocumentsHarness = harness;
   process.env.XAI_API_KEY = "knowledge-documents-test-key";
@@ -394,6 +421,7 @@ test("documents are isolated by account and support upload, pin, read, and delet
   assert.ok(readyDocument.conversationId);
   assert.equal(harness.db.rows.get(document.id).xaiFileId, "xai-file-1");
   assert.deepEqual(harness.uploads, ["policy.pdf"]);
+  assert.deepEqual(harness.indexCalls, [document.id]);
   assert.equal(harness.db.conversations.size, 1);
 
   const firstOpen = await api(`/knowledge-documents/${document.id}/chat`, {

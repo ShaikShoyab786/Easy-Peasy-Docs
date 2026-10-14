@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, knowledgeDocumentChunksTable } from "@workspace/db";
 import { generateGrokChatReply } from "./xai";
 import {
@@ -18,6 +18,7 @@ const XAI_API_BASE = "https://api.x.ai/v1";
 const EMBEDDING_BATCH_SIZE = 64;
 
 type EmbeddingModel = { id: string };
+let embeddingModelCache: { model: EmbeddingModel; expiresAt: number } | undefined;
 
 export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "knowledge-pdf-"));
@@ -36,6 +37,9 @@ export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
 }
 
 async function getEmbeddingModel(apiKey: string): Promise<EmbeddingModel> {
+  if (embeddingModelCache && embeddingModelCache.expiresAt > Date.now()) {
+    return embeddingModelCache.model;
+  }
   const response = await fetch(`${XAI_API_BASE}/embedding-models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(20_000),
@@ -57,7 +61,9 @@ async function getEmbeddingModel(apiKey: string): Promise<EmbeddingModel> {
     ? ids.find((id) => id === configured)
     : ids[0];
   if (!model) throw new Error("No usable xAI embedding model is available for this API key.");
-  return { id: model };
+  const discovered = { id: model };
+  embeddingModelCache = { model: discovered, expiresAt: Date.now() + 5 * 60_000 };
+  return discovered;
 }
 
 async function embedBatch(
@@ -81,14 +87,18 @@ async function embedBatch(
     throw new Error("xAI returned an invalid embedding response.");
   }
   const rows = (payload as { data: unknown[] }).data;
-  const embeddings = rows.map((row) => {
+  const embeddings = rows.map((row, fallbackIndex) => {
     if (!row || typeof row !== "object" || !("embedding" in row) ||
         !Array.isArray((row as { embedding?: unknown }).embedding) ||
         !(row as { embedding: unknown[] }).embedding.every((value) => typeof value === "number")) {
       throw new Error("xAI returned an invalid embedding vector.");
     }
-    return (row as { embedding: number[] }).embedding;
-  });
+    const index = "index" in row && typeof row.index === "number"
+      ? row.index
+      : fallbackIndex;
+    return { index, values: (row as { embedding: number[] }).embedding };
+  }).sort((left, right) => left.index - right.index)
+    .map(({ values }) => values);
   if (embeddings.length !== texts.length ||
       embeddings.some((vector) => vector.length !== embeddings[0]?.length)) {
     throw new Error("xAI returned inconsistent embedding dimensions.");
@@ -155,6 +165,9 @@ export async function indexKnowledgeDocument(input: {
   fileName: string;
   contentType: string;
   bytes: Uint8Array;
+  persistChunks?: (
+    rows: (typeof knowledgeDocumentChunksTable.$inferInsert)[],
+  ) => Promise<void>;
 }): Promise<{ chunkCount: number; embeddingModel: string }> {
   let textChunks: KnowledgeChunkInput[];
   let visual: KnowledgeChunkInput[] = [];
@@ -180,27 +193,68 @@ export async function indexKnowledgeDocument(input: {
     );
   }
 
-  await db.transaction(async (tx) => {
-    await tx.delete(knowledgeDocumentChunksTable).where(
-      and(
-        eq(knowledgeDocumentChunksTable.documentId, input.documentId),
-        eq(knowledgeDocumentChunksTable.ownerId, input.ownerId),
-      ),
-    );
-    for (let offset = 0; offset < chunks.length; offset += 100) {
-      await tx.insert(knowledgeDocumentChunksTable).values(
-        chunks.slice(offset, offset + 100).map((chunk, index) => ({
-          documentId: input.documentId,
-          ownerId: input.ownerId,
-          chunkIndex: offset + index,
-          contentKind: chunk.contentKind,
-          sourcePage: chunk.sourcePage,
-          content: chunk.content,
-          embeddingModel: model.id,
-          embedding: vectors[offset + index]!,
-        })),
+  const rows = chunks.map((chunk, index) => ({
+    documentId: input.documentId,
+    ownerId: input.ownerId,
+    chunkIndex: index,
+    contentKind: chunk.contentKind,
+    sourcePage: chunk.sourcePage,
+    content: chunk.content,
+    embeddingModel: model.id,
+    embedding: vectors[index]!,
+  }));
+  if (input.persistChunks) {
+    await input.persistChunks(rows);
+  } else {
+    await db.transaction(async (tx) => {
+      await tx.delete(knowledgeDocumentChunksTable).where(
+        and(
+          eq(knowledgeDocumentChunksTable.documentId, input.documentId),
+          eq(knowledgeDocumentChunksTable.ownerId, input.ownerId),
+        ),
       );
-    }
-  });
+      for (let offset = 0; offset < rows.length; offset += 100) {
+        await tx.insert(knowledgeDocumentChunksTable).values(rows.slice(offset, offset + 100));
+      }
+    });
+  }
   return { chunkCount: chunks.length, embeddingModel: model.id };
+}
+
+export async function searchKnowledgeDocumentChunks(input: {
+  apiKey: string;
+  documentId: string;
+  ownerId: string;
+  query: string;
+  limit?: number;
+}): Promise<Array<{ content: string; contentKind: string; sourcePage: number | null }>> {
+  const model = await getEmbeddingModel(input.apiKey);
+  const [queryVector] = await embedBatch(input.apiKey, model.id, [input.query]);
+  if (!queryVector?.length) return [];
+  const vectorLiteral = `[${queryVector.join(",")}]`;
+  const limit = Math.max(1, Math.min(input.limit ?? 8, 12));
+  const rows = await db
+    .select({
+      content: knowledgeDocumentChunksTable.content,
+      contentKind: knowledgeDocumentChunksTable.contentKind,
+      sourcePage: knowledgeDocumentChunksTable.sourcePage,
+    })
+    .from(knowledgeDocumentChunksTable)
+    .where(and(
+      eq(knowledgeDocumentChunksTable.documentId, input.documentId),
+      eq(knowledgeDocumentChunksTable.ownerId, input.ownerId),
+      eq(knowledgeDocumentChunksTable.embeddingModel, model.id),
+    ))
+    .orderBy(sql`${knowledgeDocumentChunksTable.embedding} <=> ${vectorLiteral}::vector`)
+    .limit(limit);
+
+  let chars = 0;
+  const selected = [];
+  for (const row of rows) {
+    if (chars + row.content.length > 12_000 && selected.length > 0) continue;
+    selected.push(row);
+    chars += row.content.length;
+    if (chars >= 12_000) break;
+  }
+  return selected;
 }

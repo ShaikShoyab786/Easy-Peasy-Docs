@@ -20,7 +20,7 @@ export type AssistantHistoryMessage = {
 };
 
 const DOCUMENT_CONTEXT_ONLY_INSTRUCTION =
-  "Answer the user's question using only the attached document as your source. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the document does not contain the answer, say that it is not specified in the document. Do not guess.";
+  "Answer the user's question using only the supplied document evidence. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the evidence does not contain the answer, say that it is not specified in the document. Do not guess.";
 
 export type GrokChatAttachment = {
   buffer: Uint8Array;
@@ -169,6 +169,7 @@ function modelInput(
   history: AssistantHistoryMessage[],
   attachments: GrokInputAttachment[],
   documentContextOnly = false,
+  documentContext?: string,
 ): Array<{
   role: AssistantHistoryMessage["role"] | "developer";
   content: string | Array<{ type: string; text?: string; file_id?: string; image_url?: string }>;
@@ -193,7 +194,12 @@ function modelInput(
       : message,
   );
   return documentContextOnly
-    ? [{ role: "developer", content: DOCUMENT_CONTEXT_ONLY_INSTRUCTION }, ...messages]
+    ? [{
+        role: "developer",
+        content: documentContext
+          ? `${DOCUMENT_CONTEXT_ONLY_INSTRUCTION}\n\nRetrieved document passages (with source page where available):\n${documentContext}`
+          : DOCUMENT_CONTEXT_ONLY_INSTRUCTION,
+      }, ...messages]
     : messages;
 }
 
@@ -457,6 +463,7 @@ export async function generateGrokChatReply(
   attachments: GrokInputAttachment[] = [],
   documentContextOnly = false,
   onCapacityRetry?: (retryNumber: number, message: string) => void,
+  documentContext?: string,
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -485,7 +492,7 @@ export async function generateGrokChatReply(
     apiKey,
     {
       model: discovery.model,
-      input: modelInput(history, attachments, documentContextOnly),
+      input: modelInput(history, attachments, documentContextOnly, documentContext),
       store: false,
     },
     undefined,
@@ -527,6 +534,7 @@ export async function streamGrokChatReply(
   attachments: GrokInputAttachment[] = [],
   documentContextOnly = false,
   onCapacityRetry?: (retryNumber: number, message: string) => void,
+  documentContext?: string,
 ): Promise<string> {
   let discovery: GrokModelDiscovery;
   try {
@@ -558,7 +566,7 @@ export async function streamGrokChatReply(
       apiKey,
       {
         model: discovery.model,
-        input: modelInput(history, attachments, documentContextOnly),
+        input: modelInput(history, attachments, documentContextOnly, documentContext),
         store: false,
         stream: true,
       },

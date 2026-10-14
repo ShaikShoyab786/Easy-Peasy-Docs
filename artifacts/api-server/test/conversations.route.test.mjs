@@ -30,6 +30,12 @@ const mockModules = new Map([
         xaiFileId: column("knowledge_documents", "xaiFileId"),
         updatedAt: column("knowledge_documents", "updatedAt"),
       };
+      export const knowledgeDocumentChunksTable = {
+        name: "knowledge_document_chunks",
+        id: column("knowledge_document_chunks", "id"),
+        documentId: column("knowledge_document_chunks", "documentId"),
+        ownerId: column("knowledge_document_chunks", "ownerId"),
+      };
     `,
   ],
   [
@@ -66,6 +72,12 @@ const mockModules = new Map([
         xaiFileId: column("knowledge_documents", "xaiFileId"),
         updatedAt: column("knowledge_documents", "updatedAt"),
       };
+      export const knowledgeDocumentChunksTable = {
+        name: "knowledge_document_chunks",
+        id: column("knowledge_document_chunks", "id"),
+        documentId: column("knowledge_document_chunks", "documentId"),
+        ownerId: column("knowledge_document_chunks", "ownerId"),
+      };
     `,
   ],
   [
@@ -75,6 +87,7 @@ const mockModules = new Map([
       export const and = (...conditions) => ({ conditions });
       export const asc = (column) => ({ column, direction: "asc" });
       export const desc = (column) => ({ column, direction: "desc" });
+      export const sql = (...parts) => ({ parts });
     `,
   ],
   [
@@ -107,6 +120,17 @@ const mockModules = new Map([
     `,
   ],
   [
+    "../lib/knowledgeDocumentIndex",
+    `
+      export async function searchKnowledgeDocumentChunks(input) {
+        const model = globalThis.__conversationRouteHarness.model;
+        model.retrievalRequest = input;
+        if (model.retrievalFailure) throw model.retrievalFailure;
+        return model.retrievalResults ?? [];
+      }
+    `,
+  ],
+  [
     "../lib/xai",
     `
       export class GrokChatError extends Error {
@@ -131,11 +155,12 @@ const mockModules = new Map([
       export async function deleteGrokAttachments() {
         return 0;
       }
-      export async function generateGrokChatReply(_apiKey, _history, attachments = [], documentContextOnly = false) {
+      export async function generateGrokChatReply(_apiKey, _history, attachments = [], documentContextOnly = false, _onCapacityRetry, documentContext) {
         const model = globalThis.__conversationRouteHarness.model;
         model.receivedParts = attachments;
         model.receivedHistory = _history;
         model.documentContextOnly = documentContextOnly;
+        model.documentContext = documentContext;
         if (model.failure) {
           throw new GrokChatError(
             model.failure.message,
@@ -891,11 +916,39 @@ test("document-only chat requires one attachment and passes document scope to Gr
 
   assert.equal(response.status, 201, await response.clone().text());
   assert.equal(harness.model.documentContextOnly, true);
+  assert.equal(harness.model.documentContext, undefined);
   assert.deepEqual(
     harness.model.receivedParts,
     [{ type: "input_file", file_id: "xai-saved-file-id" }],
   );
   assert.equal(harness.model.receivedUploads, undefined);
+});
+
+test("document-only chat uses scoped retrieved passages instead of the saved file reference", async () => {
+  resetDatabase();
+  process.env.XAI_API_KEY = "route-test-key";
+  harness.db.state.knowledgeDocuments.set("document-rag", {
+    id: "document-rag",
+    ownerId,
+    conversationId: draftId,
+    status: "ready",
+    xaiFileId: "legacy-xai-file",
+  });
+  harness.model = {
+    reply: "Revenue was 42 million.",
+    retrievalResults: [{
+      content: "Revenue was $42 million in 2025.",
+      contentKind: "chart",
+      sourcePage: 6,
+    }],
+  };
+  const response = await sendFirstTurnWithAttachments([], true);
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.deepEqual(harness.model.receivedParts, []);
+  assert.match(harness.model.documentContext, /chart, page 6/);
+  assert.match(harness.model.documentContext, /Revenue was \$42 million/);
+  assert.equal(harness.model.retrievalRequest.documentId, "document-rag");
+  assert.equal(harness.model.retrievalRequest.ownerId, ownerId);
 });
 
 test("document-only follow-up reuses the saved file and keeps prior chat history", async () => {
@@ -1018,7 +1071,7 @@ test("document-only xAI payload grounds an unanswered question in its file attac
   assert.deepEqual(requestBody.input[0], {
     role: "developer",
     content:
-      "Answer the user's question using only the attached document as your source. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the document does not contain the answer, say that it is not specified in the document. Do not guess.",
+      "Answer the user's question using only the supplied document evidence. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the evidence does not contain the answer, say that it is not specified in the document. Do not guess.",
   });
   assert.deepEqual(requestBody.input[1], {
     role: "user",
@@ -1046,7 +1099,7 @@ test("document-only xAI follow-up payload keeps prior messages and attaches the 
     {
       role: "developer",
       content:
-        "Answer the user's question using only the attached document as your source. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the document does not contain the answer, say that it is not specified in the document. Do not guess.",
+        "Answer the user's question using only the supplied document evidence. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the evidence does not contain the answer, say that it is not specified in the document. Do not guess.",
     },
     history[0],
     history[1],

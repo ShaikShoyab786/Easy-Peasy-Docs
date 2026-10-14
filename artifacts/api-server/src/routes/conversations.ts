@@ -30,6 +30,7 @@ import {
   streamGrokChatReply,
   type AssistantHistoryMessage,
 } from "../lib/xai";
+import { searchKnowledgeDocumentChunks } from "../lib/knowledgeDocumentIndex";
 import {
   startChatStreamHeartbeat,
   wantsChatStream,
@@ -630,10 +631,37 @@ router.post(
       ...selectChatHistory(previousMessages),
       { role: "user" as const, content },
     ];
+    let retrievedDocumentContext: string | undefined;
+    if (documentContextOnly && knowledgeDocument) {
+      try {
+        const passages = await searchKnowledgeDocumentChunks({
+          apiKey,
+          documentId: knowledgeDocument.id,
+          ownerId,
+          query: content,
+          limit: 8,
+        });
+        if (passages.length) {
+          retrievedDocumentContext = passages
+            .map((passage) =>
+              `[${passage.contentKind}${passage.sourcePage ? `, page ${passage.sourcePage}` : ""}]\n${passage.content}`,
+            )
+            .join("\n\n---\n\n");
+        }
+      } catch (error) {
+        req.log.warn(
+          { errorName: error instanceof Error ? error.name : "UnknownError" },
+          "Knowledge Hub retrieval failed; using the saved file reference",
+        );
+      }
+    }
     const streamRequested = wantsChatStream(req.get("accept"));
     let assistantReply: string;
     const persistentFileIds = new Set<string>();
     const prepareTurnAttachments = async (signal?: AbortSignal) => {
+      if (retrievedDocumentContext) {
+        return { parts: [], uploadedFileIds: [] };
+      }
       if (documentContextOnly && knowledgeDocument?.xaiFileId) {
         return {
           parts: [{ type: "input_file" as const, file_id: knowledgeDocument.xaiFileId }],
@@ -692,6 +720,7 @@ router.post(
           (_retryNumber, message) => {
             writeChatStreamEvent(res, { type: "status", message }, 201);
           },
+          retrievedDocumentContext,
         );
       } catch (error) {
         if (streamController.signal.aborted) {
@@ -751,6 +780,8 @@ router.post(
           history,
           grokAttachments.parts,
           documentContextOnly,
+          undefined,
+          retrievedDocumentContext,
         );
       } catch (error) {
         if (error instanceof GrokChatError) {

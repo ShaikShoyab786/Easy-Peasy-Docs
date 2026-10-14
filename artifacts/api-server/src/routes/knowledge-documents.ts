@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
-import { db, conversationsTable, knowledgeDocumentsTable } from "@workspace/db";
+import {
+  db,
+  conversationsTable,
+  knowledgeDocumentChunksTable,
+  knowledgeDocumentsTable,
+} from "@workspace/db";
 import {
   CompleteKnowledgeDocumentUploadParams,
   CompleteKnowledgeDocumentUploadResponse,
@@ -26,6 +31,7 @@ import {
   requireAuth,
 } from "../middlewares/require-auth";
 import { uploadGrokFile } from "../lib/xai";
+import { indexKnowledgeDocument } from "../lib/knowledgeDocumentIndex";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -185,12 +191,24 @@ router.post(
 
         if (!document) return { kind: "not_found" as const };
         let xaiFileId = document.xaiFileId;
-        if (document.status !== "ready" || !xaiFileId) {
+        const [indexedChunk] = await tx
+          .select({ id: knowledgeDocumentChunksTable.id })
+          .from(knowledgeDocumentChunksTable)
+          .where(
+            and(
+              eq(knowledgeDocumentChunksTable.documentId, document.id),
+              eq(knowledgeDocumentChunksTable.ownerId, ownerId),
+            ),
+          )
+          .limit(1);
+        const needsIndex = !indexedChunk;
+        let uploadedBytes: Buffer | undefined;
+        if (document.status !== "ready" || !xaiFileId || needsIndex) {
           const file = await objectStorageService.getObjectEntityFile(
             document.objectPath,
           );
           const [metadata] = await file.getMetadata();
-          const [uploadedBytes] = await file.download();
+          [uploadedBytes] = await file.download();
           if (
             uploadedBytes.byteLength !== document.byteSize ||
             (metadata.contentType && metadata.contentType !== document.contentType) ||
@@ -203,6 +221,29 @@ router.post(
               buffer: uploadedBytes,
               filename: document.fileName,
               mimeType: document.contentType,
+            });
+          }
+          if (needsIndex) {
+            await indexKnowledgeDocument({
+              apiKey,
+              documentId: document.id,
+              ownerId,
+              fileName: document.fileName,
+              contentType: document.contentType,
+              bytes: uploadedBytes,
+              persistChunks: async (rows) => {
+                await tx.delete(knowledgeDocumentChunksTable).where(
+                  and(
+                    eq(knowledgeDocumentChunksTable.documentId, document.id),
+                    eq(knowledgeDocumentChunksTable.ownerId, ownerId),
+                  ),
+                );
+                for (let offset = 0; offset < rows.length; offset += 100) {
+                  await tx
+                    .insert(knowledgeDocumentChunksTable)
+                    .values(rows.slice(offset, offset + 100));
+                }
+              },
             });
           }
         }
