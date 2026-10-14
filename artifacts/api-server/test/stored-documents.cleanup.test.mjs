@@ -17,8 +17,10 @@ const mockModules = new Map([
         select: (...args) => globalThis.__storedDocumentsCleanupHarness.db.select(...args),
         transaction: (...args) => globalThis.__storedDocumentsCleanupHarness.db.transaction(...args),
         delete: (...args) => globalThis.__storedDocumentsCleanupHarness.db.delete(...args),
+        insert: (...args) => globalThis.__storedDocumentsCleanupHarness.db.insert(...args),
       };
       export const knowledgeDocumentsTable = globalThis.__storedDocumentsCleanupHarness.table;
+      export const knowledgeDocumentChunksTable = globalThis.__storedDocumentsCleanupHarness.chunkTable;
     `,
   ],
   [
@@ -28,6 +30,34 @@ const mockModules = new Map([
       export const lte = (column, value) => ({ op: "lte", column, value });
       export const and = (...conditions) => ({ op: "and", conditions });
       export const asc = (column) => ({ column, direction: "asc" });
+      export const gt = (column, value) => ({ op: "gt", column, value });
+      export const notExists = (query) => ({ op: "notExists", query });
+      export const or = (...conditions) => ({ op: "or", conditions });
+      export const sql = () => ({});
+    `,
+  ],
+  [
+    "./knowledgeDocumentIndex",
+    `
+      export const KNOWLEDGE_EMBEDDING_MODEL = "models/gemini-embedding-2";
+      export async function indexKnowledgeDocument(input) {
+        const harness = globalThis.__storedDocumentsCleanupHarness;
+        harness.indexCalls.push(input.documentId);
+        if (harness.indexFailures.has(input.documentId)) {
+          throw new Error("simulated embedding failure");
+        }
+        await input.persistChunks([{
+          documentId: input.documentId,
+          ownerId: input.ownerId,
+          chunkIndex: 0,
+          contentKind: "text",
+          sourcePage: null,
+          content: "private document contents",
+          embeddingModel: "models/gemini-embedding-2",
+          embedding: [0.1],
+        }]);
+        return { chunkCount: 1, embeddingModel: "models/gemini-embedding-2" };
+      }
     `,
   ],
   [
@@ -47,6 +77,10 @@ const mockModules = new Map([
               }
               storage.objects.delete(objectPath);
             },
+            getMetadata: async () => [{
+              contentType: storage.contents.get(objectPath)?.contentType,
+            }],
+            download: async () => [storage.contents.get(objectPath)?.bytes],
           };
         }
       }
@@ -80,12 +114,26 @@ function mockPlugin() {
   };
 }
 
-function matches(row, condition) {
-  if (condition.op === "and") {
-    return condition.conditions.every((nested) => matches(row, nested));
+function matches(row, condition, outerRow) {
+  if (!condition) return true;
+  if (condition.op === "and" || condition.op === "or") {
+    const matched = condition.conditions.map((nested) =>
+      matches(row, nested, outerRow),
+    );
+    return condition.op === "and" ? matched.every(Boolean) : matched.some(Boolean);
   }
-  if (condition.op === "eq") {
-    return row[condition.column.field] === condition.value;
+  if (condition.op === "notExists") {
+    return !globalThis.__storedDocumentsCleanupHarness.chunks.some((chunk) =>
+      matches(chunk, condition.query.condition, row),
+    );
+  }
+  if (condition.op === "eq" || condition.op === "gt") {
+    const value = condition.value?.field
+      ? outerRow?.[condition.value.field]
+      : condition.value;
+    return condition.op === "eq"
+      ? row[condition.column.field] === value
+      : row[condition.column.field] > value;
   }
   if (condition.op === "lte") {
     return row[condition.column.field] <= condition.value;
@@ -96,38 +144,78 @@ function matches(row, condition) {
 function createHarness() {
   const rows = new Map();
   const table = {
+    name: "knowledge_documents",
     id: { field: "id" },
     objectPath: { field: "objectPath" },
+    ownerId: { field: "ownerId" },
+    fileName: { field: "fileName" },
+    contentType: { field: "contentType" },
+    byteSize: { field: "byteSize" },
+    xaiFileId: { field: "xaiFileId" },
     status: { field: "status" },
     createdAt: { field: "createdAt" },
   };
+  const chunkTable = {
+    name: "knowledge_document_chunks",
+    id: { field: "chunkId" },
+    documentId: { field: "documentId" },
+    ownerId: { field: "ownerId" },
+    embeddingModel: { field: "embeddingModel" },
+  };
   const harness = {
     table,
+    chunkTable,
     rows,
+    chunks: [],
+    indexCalls: [],
+    indexFailures: new Set(),
     afterCandidateRead: null,
     storage: {
       objects: new Set(),
+      contents: new Map(),
       failPaths: new Set(),
       deleteCalls: 0,
     },
   };
 
-  function selectedRows(condition) {
-    return [...rows.values()].filter((row) => matches(row, condition));
-  }
-
   function selectQuery() {
+    let target;
     let condition;
     const query = {
+      from(value) {
+        target = value;
+        return query;
+      },
       where(value) {
         condition = value;
         return query;
       },
-      orderBy() {
-        return query;
+      orderBy(...orders) {
+        let result = (target.name === "knowledge_document_chunks" ? harness.chunks : [...rows.values()])
+          .filter((row) => matches(row, condition, harness.outerRow));
+        for (const order of orders) {
+          result = [...result].sort((left, right) => {
+            const a = left[order.column.field];
+            const b = right[order.column.field];
+            return a < b ? -1 : a > b ? 1 : 0;
+          });
+        }
+        return Object.assign(Promise.resolve(result), {
+          limit(count) {
+            const limited = result.slice(0, count);
+            if (harness.afterCandidateRead) {
+              const hook = harness.afterCandidateRead;
+              harness.afterCandidateRead = null;
+              hook(limited);
+            }
+            return Promise.resolve(limited);
+          },
+        });
       },
       limit(count) {
-        const result = selectedRows(condition).slice(0, count);
+        const result = (target.name === "knowledge_document_chunks" ? harness.chunks : [...rows.values()])
+          .filter((row) => matches(row, condition, harness.outerRow))
+          .slice(0, count);
         if (harness.afterCandidateRead) {
           const hook = harness.afterCandidateRead;
           harness.afterCandidateRead = null;
@@ -136,34 +224,53 @@ function createHarness() {
         return Promise.resolve(result);
       },
       for() {
-        return Promise.resolve(selectedRows(condition));
+        return Promise.resolve(
+          (target.name === "knowledge_document_chunks" ? harness.chunks : [...rows.values()])
+            .filter((row) => matches(row, condition, harness.outerRow)),
+        );
       },
     };
+    Object.defineProperty(query, "condition", { get: () => condition });
     return query;
+  }
+
+  function deleteRows(target, condition) {
+    if (target.name === "knowledge_document_chunks") {
+      const remaining = harness.chunks.filter((row) => !matches(row, condition));
+      harness.chunks.splice(0, harness.chunks.length, ...remaining);
+      return [];
+    }
+    const deleted = [];
+    for (const [id, row] of rows) {
+      if (matches(row, condition)) {
+        rows.delete(id);
+        deleted.push({ id });
+      }
+    }
+    return deleted;
   }
 
   const db = {
     select() {
-      return { from: () => selectQuery() };
+      return selectQuery();
     },
     async transaction(callback) {
       return callback(db);
     },
-    delete() {
+    delete(target) {
       return {
         where(condition) {
-          return {
-            returning() {
-              const deleted = [];
-              for (const [id, row] of rows) {
-                if (matches(row, condition)) {
-                  rows.delete(id);
-                  deleted.push({ id });
-                }
-              }
-              return Promise.resolve(deleted);
-            },
-          };
+          const promise = Promise.resolve(deleteRows(target, condition));
+          promise.returning = () => promise;
+          return promise;
+        },
+      };
+    },
+    insert(target) {
+      return {
+        values(values) {
+          if (target.name === "knowledge_document_chunks") harness.chunks.push(...values);
+          return Promise.resolve(values);
         },
       };
     },
@@ -173,6 +280,7 @@ function createHarness() {
 }
 
 let cleanupAbandonedKnowledgeDocumentUploads;
+let backfillMissingKnowledgeDocumentIndexes;
 let abandonedUploadAgeMs;
 
 before(async () => {
@@ -190,6 +298,8 @@ before(async () => {
   const module = await import(pathToFileURL(bundlePath).href);
   cleanupAbandonedKnowledgeDocumentUploads =
     module.cleanupAbandonedKnowledgeDocumentUploads;
+  backfillMissingKnowledgeDocumentIndexes =
+    module.backfillMissingKnowledgeDocumentIndexes;
   abandonedUploadAgeMs = module.ABANDONED_KNOWLEDGE_DOCUMENT_UPLOAD_AGE_MS;
 });
 
@@ -202,6 +312,27 @@ function addDocument(harness, { id, createdAt, status = "pending_upload" }) {
   const objectPath = `/objects/${id}`;
   harness.rows.set(id, { id, objectPath, createdAt, status });
   harness.storage.objects.add(objectPath);
+  return objectPath;
+}
+
+function addReadyDocument(harness, { id, createdAt, bytes, status = "ready" }) {
+  const objectPath = `/objects/${id}`;
+  harness.rows.set(id, {
+    id,
+    ownerId: "owner-a",
+    fileName: `${id}.txt`,
+    contentType: "text/plain",
+    byteSize: bytes.byteLength,
+    objectPath,
+    xaiFileId: `xai-${id}`,
+    status,
+    createdAt,
+  });
+  harness.storage.objects.add(objectPath);
+  harness.storage.contents.set(objectPath, {
+    bytes,
+    contentType: "text/plain",
+  });
   return objectPath;
 }
 
@@ -294,4 +425,88 @@ test("cleanup rechecks status under the row lock before deleting an object", asy
   assert.equal(harness.rows.get("became-ready").status, "ready");
   assert.equal(harness.storage.objects.has(objectPath), true);
   assert.equal(harness.storage.deleteCalls, 0);
+});
+
+test("backfill indexes only ready documents missing the active model and preserves saved files", async () => {
+  const harness = createHarness();
+  globalThis.__storedDocumentsCleanupHarness = harness;
+  const createdAt = new Date("2026-10-09T12:00:00.000Z");
+  const bytes = Buffer.from("stored document body");
+  const objectPath = addReadyDocument(harness, {
+    id: "needs-index",
+    createdAt,
+    bytes,
+  });
+  addReadyDocument(harness, {
+    id: "already-indexed",
+    createdAt: new Date(createdAt.getTime() + 1),
+    bytes,
+  });
+  harness.chunks.push({
+    chunkId: "existing-chunk",
+    documentId: "already-indexed",
+    ownerId: "owner-a",
+    embeddingModel: "models/gemini-embedding-2",
+  });
+  addReadyDocument(harness, {
+    id: "not-ready",
+    createdAt: new Date(createdAt.getTime() + 2),
+    bytes,
+    status: "pending_upload",
+  });
+  const progressUpdates = [];
+
+  const result = await backfillMissingKnowledgeDocumentIndexes({
+    apiKey: "test-xai-key",
+    embeddingApiKey: "test-gemini-key",
+    onProgress: (progress) => progressUpdates.push(progress),
+  });
+
+  assert.deepEqual(result, { scanned: 1, indexed: 1, skipped: 0, failed: 0 });
+  assert.deepEqual(harness.indexCalls, ["needs-index"]);
+  assert.deepEqual(progressUpdates, [result]);
+  assert.equal(harness.storage.objects.has(objectPath), true);
+  assert.deepEqual(harness.rows.get("needs-index").xaiFileId, "xai-needs-index");
+  assert.equal(harness.rows.get("needs-index").status, "ready");
+  assert.ok(harness.chunks.some(
+    (chunk) => chunk.documentId === "needs-index" &&
+      chunk.embeddingModel === "models/gemini-embedding-2",
+  ));
+});
+
+test("backfill reports safe failures and retries them on a later run", async () => {
+  const harness = createHarness();
+  globalThis.__storedDocumentsCleanupHarness = harness;
+  const bytes = Buffer.from("do not include this text in progress or error details");
+  const objectPath = addReadyDocument(harness, {
+    id: "retry-index",
+    createdAt: new Date("2026-10-09T12:00:00.000Z"),
+    bytes,
+  });
+  harness.indexFailures.add("retry-index");
+  const failures = [];
+
+  const failedRun = await backfillMissingKnowledgeDocumentIndexes({
+    apiKey: "test-xai-key",
+    embeddingApiKey: "test-gemini-key",
+    onFailure: (failure) => failures.push(failure),
+  });
+  assert.deepEqual(failedRun, { scanned: 1, indexed: 0, skipped: 0, failed: 1 });
+  assert.deepEqual(failures, [{
+    documentId: "retry-index",
+    stage: "indexing",
+    errorName: "Error",
+  }]);
+  assert.equal(JSON.stringify(failures).includes(bytes.toString()), false);
+  assert.equal(harness.storage.objects.has(objectPath), true);
+  assert.equal(harness.rows.get("retry-index").xaiFileId, "xai-retry-index");
+  assert.equal(harness.chunks.length, 0);
+
+  harness.indexFailures.clear();
+  const retriedRun = await backfillMissingKnowledgeDocumentIndexes({
+    apiKey: "test-xai-key",
+    embeddingApiKey: "test-gemini-key",
+  });
+  assert.deepEqual(retriedRun, { scanned: 1, indexed: 1, skipped: 0, failed: 0 });
+  assert.deepEqual(harness.indexCalls, ["retry-index", "retry-index"]);
 });
