@@ -168,7 +168,10 @@ export async function indexKnowledgeDocument(input: {
   for (let offset = 0; offset < chunks.length; offset += EMBEDDING_BATCH_SIZE) {
     const batch = chunks.slice(offset, offset + EMBEDDING_BATCH_SIZE);
     vectors.push(
-      ...await embedBatch(input.embeddingApiKey, batch.map((chunk) => chunk.content)),
+      ...await embedBatch(
+        input.embeddingApiKey,
+        batch.map((chunk) => `title: ${input.fileName} | text: ${chunk.content}`),
+      ),
     );
   }
 
@@ -207,7 +210,10 @@ export async function searchKnowledgeDocumentChunks(input: {
   query: string;
   limit?: number;
 }): Promise<Array<{ content: string; contentKind: string; sourcePage: number | null }>> {
-  const [queryVector] = await embedBatch(input.embeddingApiKey, [input.query]);
+  const [queryVector] = await embedBatch(
+    input.embeddingApiKey,
+    [`task: question answering | query: ${input.query}`],
+  );
   if (!queryVector?.length) return [];
   const vectorLiteral = `[${queryVector.join(",")}]`;
   const limit = Math.max(1, Math.min(input.limit ?? 8, 12));

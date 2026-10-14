@@ -87,10 +87,11 @@ const mockModules = new Map([
   [
     "../lib/knowledgeDocumentIndex",
     `
-      export const KNOWLEDGE_EMBEDDING_MODEL = "models/text-embedding-004";
+      export const KNOWLEDGE_EMBEDDING_MODEL = "models/gemini-embedding-2";
       export async function indexKnowledgeDocument(input) {
         const harness = globalThis.__knowledgeDocumentsHarness;
         harness.indexCalls.push(input.documentId);
+        if (harness.indexFailure) throw new Error("simulated Gemini embedding denial");
         await input.persistChunks?.([]);
         return { chunkCount: 1, embeddingModel: "test-embedding" };
       }
@@ -331,8 +332,10 @@ before(async () => {
       failDelete: false,
     },
     errors: [],
+    warnings: [],
     uploads: [],
     indexCalls: [],
+    indexFailure: false,
   };
   globalThis.__knowledgeDocumentsHarness = harness;
   process.env.XAI_API_KEY = "knowledge-documents-test-key";
@@ -345,6 +348,9 @@ before(async () => {
     req.log = {
       error(fields, message) {
         harness.errors.push({ fields, message });
+      },
+      warn(fields, message) {
+        harness.warnings.push({ fields, message });
       },
     };
     next();
@@ -473,6 +479,28 @@ test("documents are isolated by account and support upload, pin, read, and delet
   assert.equal(deleted.status, 204);
   assert.equal(harness.db.rows.has(document.id), false);
   assert.equal(harness.storage.objects.has(objectPath), false);
+});
+
+test("failed Gemini indexing keeps the document ready with its saved xAI fallback", async () => {
+  const bytes = Buffer.from("This document remains available through its saved xAI file.");
+  const document = await createPendingDocument({
+    fileName: "fallback.txt",
+    bytes,
+    contentType: "text/plain",
+  });
+  harness.indexFailure = true;
+  try {
+    const response = await api(`/knowledge-documents/${document.id}/complete`, {
+      method: "POST",
+    });
+    assert.equal(response.status, 200);
+    const ready = await response.json();
+    assert.equal(ready.status, "ready");
+    assert.equal(harness.db.rows.get(document.id).xaiFileId, "xai-file-2");
+    assert.ok(harness.warnings.some(({ message }) => message.includes("Gemini indexing failed")));
+  } finally {
+    harness.indexFailure = false;
+  }
 });
 
 test("completion rejects content that does not match the reserved PDF type and size", async () => {

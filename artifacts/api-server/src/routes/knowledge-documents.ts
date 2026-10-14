@@ -180,10 +180,6 @@ router.post(
       return;
     }
     const embeddingApiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!embeddingApiKey) {
-      res.status(503).json({ error: "The document could not be prepared for chat." });
-      return;
-    }
     try {
       const result = await db.transaction(async (tx) => {
         const [document] = await tx
@@ -233,28 +229,39 @@ router.post(
             });
           }
           if (needsIndex) {
-            await indexKnowledgeDocument({
-              apiKey,
-              embeddingApiKey,
-              documentId: document.id,
-              ownerId,
-              fileName: document.fileName,
-              contentType: document.contentType,
-              bytes: uploadedBytes,
-              persistChunks: async (rows) => {
-                await tx.delete(knowledgeDocumentChunksTable).where(
-                  and(
-                    eq(knowledgeDocumentChunksTable.documentId, document.id),
-                    eq(knowledgeDocumentChunksTable.ownerId, ownerId),
-                  ),
+            if (!embeddingApiKey) {
+              req.log.warn({ documentId: document.id }, "Gemini key unavailable; keeping the saved xAI file fallback");
+            } else {
+              try {
+                await indexKnowledgeDocument({
+                  apiKey,
+                  embeddingApiKey,
+                  documentId: document.id,
+                  ownerId,
+                  fileName: document.fileName,
+                  contentType: document.contentType,
+                  bytes: uploadedBytes,
+                  persistChunks: async (rows) => {
+                    await tx.delete(knowledgeDocumentChunksTable).where(
+                      and(
+                        eq(knowledgeDocumentChunksTable.documentId, document.id),
+                        eq(knowledgeDocumentChunksTable.ownerId, ownerId),
+                      ),
+                    );
+                    for (let offset = 0; offset < rows.length; offset += 100) {
+                      await tx
+                        .insert(knowledgeDocumentChunksTable)
+                        .values(rows.slice(offset, offset + 100));
+                    }
+                  },
+                });
+              } catch (error) {
+                req.log.warn(
+                  { documentId: document.id, errorName: error instanceof Error ? error.name : "UnknownError" },
+                  "Gemini indexing failed; keeping the saved xAI file fallback",
                 );
-                for (let offset = 0; offset < rows.length; offset += 100) {
-                  await tx
-                    .insert(knowledgeDocumentChunksTable)
-                    .values(rows.slice(offset, offset + 100));
-                }
-              },
-            });
+              }
+            }
           }
         }
 
