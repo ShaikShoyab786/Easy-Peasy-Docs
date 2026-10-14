@@ -560,6 +560,7 @@ before(async () => {
   };
   globalThis.__conversationRouteHarness = harness;
   delete process.env.XAI_API_KEY;
+  process.env.GEMINI_API_KEY = "conversation-route-gemini-test-key";
   ({ default: route } = await import(pathToFileURL(bundlePath).href));
   const { default: guestRoute } = await import(pathToFileURL(guestBundlePath).href);
 
@@ -582,6 +583,7 @@ before(async () => {
 after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
   delete globalThis.__conversationRouteHarness;
+  delete process.env.GEMINI_API_KEY;
   await rm(path.dirname(bundlePath), { recursive: true, force: true });
 });
 

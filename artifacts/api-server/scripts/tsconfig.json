@@ -1,8 +1,0 @@
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": {
-    "rootDir": "..",
-    "tsBuildInfoFile": "../.cache/evaluation.tsbuildinfo"
-  },
-  "include": ["evaluateKnowledgeRag.ts"]
-}

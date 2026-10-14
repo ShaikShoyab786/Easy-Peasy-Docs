@@ -31,6 +31,7 @@ const mockModules = new Map([
         id: column("chunkId"),
         documentId: column("documentId"),
         ownerId: column("ownerId"),
+        embeddingModel: column("embeddingModel"),
       };
       export const conversationsTable = {
         name: "chat_conversations",
@@ -56,6 +57,7 @@ const mockModules = new Map([
         id: column("chunkId"),
         documentId: column("documentId"),
         ownerId: column("ownerId"),
+        embeddingModel: column("embeddingModel"),
       };
       export const conversationsTable = {
         name: "chat_conversations",
@@ -85,6 +87,7 @@ const mockModules = new Map([
   [
     "../lib/knowledgeDocumentIndex",
     `
+      export const KNOWLEDGE_EMBEDDING_MODEL = "models/text-embedding-004";
       export async function indexKnowledgeDocument(input) {
         const harness = globalThis.__knowledgeDocumentsHarness;
         harness.indexCalls.push(input.documentId);
@@ -333,6 +336,7 @@ before(async () => {
   };
   globalThis.__knowledgeDocumentsHarness = harness;
   process.env.XAI_API_KEY = "knowledge-documents-test-key";
+  process.env.GEMINI_API_KEY = "knowledge-documents-gemini-test-key";
   const { default: route } = await import(pathToFileURL(bundlePath).href);
 
   const app = express();
@@ -358,6 +362,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
   delete globalThis.__knowledgeDocumentsHarness;
   delete process.env.XAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
   await rm(bundleDir, { recursive: true, force: true });
 });
 

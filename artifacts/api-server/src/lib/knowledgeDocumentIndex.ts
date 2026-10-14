@@ -14,11 +14,9 @@ import {
 } from "./knowledgeDocumentChunking";
 
 const execFileAsync = promisify(execFile);
-const XAI_API_BASE = "https://api.x.ai/v1";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+export const KNOWLEDGE_EMBEDDING_MODEL = "models/text-embedding-004";
 const EMBEDDING_BATCH_SIZE = 64;
-
-type EmbeddingModel = { id: string };
-let embeddingModelCache: { model: EmbeddingModel; expiresAt: number } | undefined;
 
 export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "knowledge-pdf-"));
@@ -36,74 +34,55 @@ export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
   }
 }
 
-async function getEmbeddingModel(apiKey: string): Promise<EmbeddingModel> {
-  if (embeddingModelCache && embeddingModelCache.expiresAt > Date.now()) {
-    return embeddingModelCache.model;
-  }
-  const response = await fetch(`${XAI_API_BASE}/embedding-models`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error(`xAI embedding model discovery failed (${response.status}).`);
-  const payload: unknown = await response.json();
-  const models =
-    payload && typeof payload === "object" && "data" in payload &&
-      Array.isArray((payload as { data?: unknown }).data)
-      ? (payload as { data: unknown[] }).data
-      : [];
-  const ids = models
-    .filter((model): model is { id: string } =>
-      !!model && typeof model === "object" &&
-      "id" in model && typeof (model as { id?: unknown }).id === "string")
-    .map((model) => model.id);
-  const configured = process.env.XAI_EMBEDDING_MODEL?.trim();
-  const model = configured
-    ? ids.find((id) => id === configured)
-    : ids[0];
-  if (!model) throw new Error("No usable xAI embedding model is available for this API key.");
-  const discovered = { id: model };
-  embeddingModelCache = { model: discovered, expiresAt: Date.now() + 5 * 60_000 };
-  return discovered;
-}
-
 async function embedBatch(
   apiKey: string,
-  model: string,
   texts: string[],
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY",
 ): Promise<number[][]> {
-  const response = await fetch(`${XAI_API_BASE}/embeddings`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model, input: texts }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) throw new Error(`xAI embedding request failed (${response.status}).`);
-  const payload: unknown = await response.json();
-  if (!payload || typeof payload !== "object" || !("data" in payload) ||
-      !Array.isArray((payload as { data?: unknown }).data)) {
-    throw new Error("xAI returned an invalid embedding response.");
-  }
-  const rows = (payload as { data: unknown[] }).data;
-  const embeddings = rows.map((row, fallbackIndex) => {
-    if (!row || typeof row !== "object" || !("embedding" in row) ||
-        !Array.isArray((row as { embedding?: unknown }).embedding) ||
-        !(row as { embedding: unknown[] }).embedding.every((value) => typeof value === "number")) {
-      throw new Error("xAI returned an invalid embedding vector.");
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await fetch(`${GEMINI_API_BASE}/${KNOWLEDGE_EMBEDDING_MODEL}:batchEmbedContents`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        requests: texts.map((text) => ({
+          model: KNOWLEDGE_EMBEDDING_MODEL,
+          content: { parts: [{ text }] },
+          taskType,
+        })),
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if ((response.status === 429 || response.status >= 500) && attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+      continue;
     }
-    const index = "index" in row && typeof row.index === "number"
-      ? row.index
-      : fallbackIndex;
-    return { index, values: (row as { embedding: number[] }).embedding };
-  }).sort((left, right) => left.index - right.index)
-    .map(({ values }) => values);
-  if (embeddings.length !== texts.length ||
-      embeddings.some((vector) => vector.length !== embeddings[0]?.length)) {
-    throw new Error("xAI returned inconsistent embedding dimensions.");
+    if (!response.ok) {
+      throw new Error(`Gemini embedding request failed (${response.status}).`);
+    }
+    const payload: unknown = await response.json();
+    const embeddings =
+      payload && typeof payload === "object" && "embeddings" in payload &&
+        Array.isArray((payload as { embeddings?: unknown }).embeddings)
+        ? (payload as { embeddings: unknown[] }).embeddings
+        : [];
+    const vectors = embeddings.map((item) => {
+      const values = item && typeof item === "object" && "values" in item
+        ? (item as { values?: unknown }).values
+        : undefined;
+      if (!Array.isArray(values) || !values.every((value) => typeof value === "number")) {
+        throw new Error("Gemini returned an invalid embedding vector.");
+      }
+      return values as number[];
+    });
+    if (vectors.length !== texts.length || vectors.some((vector) => vector.length !== 768)) {
+      throw new Error("Gemini returned an unexpected embedding count or dimension; text-embedding-004 requires 768 values.");
+    }
+    return vectors;
   }
-  return embeddings;
+  throw new Error("Gemini embedding retries were exhausted.");
 }
 
 async function extractVisualContent(
@@ -160,6 +139,7 @@ async function extractVisualContent(
 
 export async function indexKnowledgeDocument(input: {
   apiKey: string;
+  embeddingApiKey: string;
   documentId: string;
   ownerId: string;
   fileName: string;
@@ -184,12 +164,11 @@ export async function indexKnowledgeDocument(input: {
   const chunks = [...textChunks, ...visual];
   if (!chunks.length) throw new Error("No searchable text or visual data could be extracted.");
 
-  const model = await getEmbeddingModel(input.apiKey);
   const vectors: number[][] = [];
   for (let offset = 0; offset < chunks.length; offset += EMBEDDING_BATCH_SIZE) {
     const batch = chunks.slice(offset, offset + EMBEDDING_BATCH_SIZE);
     vectors.push(
-      ...await embedBatch(input.apiKey, model.id, batch.map((chunk) => chunk.content)),
+      ...await embedBatch(input.embeddingApiKey, batch.map((chunk) => chunk.content), "RETRIEVAL_DOCUMENT"),
     );
   }
 
@@ -200,7 +179,7 @@ export async function indexKnowledgeDocument(input: {
     contentKind: chunk.contentKind,
     sourcePage: chunk.sourcePage,
     content: chunk.content,
-    embeddingModel: model.id,
+    embeddingModel: KNOWLEDGE_EMBEDDING_MODEL,
     embedding: vectors[index]!,
   }));
   if (input.persistChunks) {
@@ -218,18 +197,17 @@ export async function indexKnowledgeDocument(input: {
       }
     });
   }
-  return { chunkCount: chunks.length, embeddingModel: model.id };
+  return { chunkCount: chunks.length, embeddingModel: KNOWLEDGE_EMBEDDING_MODEL };
 }
 
 export async function searchKnowledgeDocumentChunks(input: {
-  apiKey: string;
+  embeddingApiKey: string;
   documentId: string;
   ownerId: string;
   query: string;
   limit?: number;
 }): Promise<Array<{ content: string; contentKind: string; sourcePage: number | null }>> {
-  const model = await getEmbeddingModel(input.apiKey);
-  const [queryVector] = await embedBatch(input.apiKey, model.id, [input.query]);
+  const [queryVector] = await embedBatch(input.embeddingApiKey, [input.query], "RETRIEVAL_QUERY");
   if (!queryVector?.length) return [];
   const vectorLiteral = `[${queryVector.join(",")}]`;
   const limit = Math.max(1, Math.min(input.limit ?? 8, 12));
@@ -243,7 +221,7 @@ export async function searchKnowledgeDocumentChunks(input: {
     .where(and(
       eq(knowledgeDocumentChunksTable.documentId, input.documentId),
       eq(knowledgeDocumentChunksTable.ownerId, input.ownerId),
-      eq(knowledgeDocumentChunksTable.embeddingModel, model.id),
+      eq(knowledgeDocumentChunksTable.embeddingModel, KNOWLEDGE_EMBEDDING_MODEL),
     ))
     .orderBy(sql`${knowledgeDocumentChunksTable.embedding} <=> ${vectorLiteral}::vector`)
     .limit(limit);

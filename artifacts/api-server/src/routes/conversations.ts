@@ -632,10 +632,11 @@ router.post(
       { role: "user" as const, content },
     ];
     let retrievedDocumentContext: string | undefined;
-    if (documentContextOnly && knowledgeDocument) {
+    const embeddingApiKey = process.env.GEMINI_API_KEY?.trim();
+    if (documentContextOnly && knowledgeDocument && embeddingApiKey) {
       try {
         const passages = await searchKnowledgeDocumentChunks({
-          apiKey,
+          embeddingApiKey,
           documentId: knowledgeDocument.id,
           ownerId,
           query: content,

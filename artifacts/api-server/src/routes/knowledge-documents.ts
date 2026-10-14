@@ -31,7 +31,10 @@ import {
   requireAuth,
 } from "../middlewares/require-auth";
 import { uploadGrokFile } from "../lib/xai";
-import { indexKnowledgeDocument } from "../lib/knowledgeDocumentIndex";
+import {
+  indexKnowledgeDocument,
+  KNOWLEDGE_EMBEDDING_MODEL,
+} from "../lib/knowledgeDocumentIndex";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -176,6 +179,11 @@ router.post(
       res.status(503).json({ error: "The document could not be prepared for chat." });
       return;
     }
+    const embeddingApiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!embeddingApiKey) {
+      res.status(503).json({ error: "The document could not be prepared for chat." });
+      return;
+    }
     try {
       const result = await db.transaction(async (tx) => {
         const [document] = await tx
@@ -198,6 +206,7 @@ router.post(
             and(
               eq(knowledgeDocumentChunksTable.documentId, document.id),
               eq(knowledgeDocumentChunksTable.ownerId, ownerId),
+              eq(knowledgeDocumentChunksTable.embeddingModel, KNOWLEDGE_EMBEDDING_MODEL),
             ),
           )
           .limit(1);
@@ -226,6 +235,7 @@ router.post(
           if (needsIndex) {
             await indexKnowledgeDocument({
               apiKey,
+              embeddingApiKey,
               documentId: document.id,
               ownerId,
               fileName: document.fileName,
