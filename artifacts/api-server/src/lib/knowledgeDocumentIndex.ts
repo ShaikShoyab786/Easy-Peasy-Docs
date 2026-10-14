@@ -15,7 +15,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-export const KNOWLEDGE_EMBEDDING_MODEL = "models/text-embedding-004";
+export const KNOWLEDGE_EMBEDDING_MODEL = "models/gemini-embedding-2";
+const EMBEDDING_DIMENSIONS = 768;
 const EMBEDDING_BATCH_SIZE = 64;
 
 export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
@@ -37,7 +38,6 @@ export async function extractPdfPages(buffer: Uint8Array): Promise<string[]> {
 async function embedBatch(
   apiKey: string,
   texts: string[],
-  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY",
 ): Promise<number[][]> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const response = await fetch(`${GEMINI_API_BASE}/${KNOWLEDGE_EMBEDDING_MODEL}:batchEmbedContents`, {
@@ -50,7 +50,7 @@ async function embedBatch(
         requests: texts.map((text) => ({
           model: KNOWLEDGE_EMBEDDING_MODEL,
           content: { parts: [{ text }] },
-          taskType,
+          outputDimensionality: EMBEDDING_DIMENSIONS,
         })),
       }),
       signal: AbortSignal.timeout(60_000),
@@ -77,8 +77,8 @@ async function embedBatch(
       }
       return values as number[];
     });
-    if (vectors.length !== texts.length || vectors.some((vector) => vector.length !== 768)) {
-      throw new Error("Gemini returned an unexpected embedding count or dimension; text-embedding-004 requires 768 values.");
+    if (vectors.length !== texts.length || vectors.some((vector) => vector.length !== EMBEDDING_DIMENSIONS)) {
+      throw new Error(`Gemini returned an unexpected embedding count or dimension; ${KNOWLEDGE_EMBEDDING_MODEL} was requested at ${EMBEDDING_DIMENSIONS} dimensions.`);
     }
     return vectors;
   }
@@ -168,7 +168,7 @@ export async function indexKnowledgeDocument(input: {
   for (let offset = 0; offset < chunks.length; offset += EMBEDDING_BATCH_SIZE) {
     const batch = chunks.slice(offset, offset + EMBEDDING_BATCH_SIZE);
     vectors.push(
-      ...await embedBatch(input.embeddingApiKey, batch.map((chunk) => chunk.content), "RETRIEVAL_DOCUMENT"),
+      ...await embedBatch(input.embeddingApiKey, batch.map((chunk) => chunk.content)),
     );
   }
 
@@ -207,7 +207,7 @@ export async function searchKnowledgeDocumentChunks(input: {
   query: string;
   limit?: number;
 }): Promise<Array<{ content: string; contentKind: string; sourcePage: number | null }>> {
-  const [queryVector] = await embedBatch(input.embeddingApiKey, [input.query], "RETRIEVAL_QUERY");
+  const [queryVector] = await embedBatch(input.embeddingApiKey, [input.query]);
   if (!queryVector?.length) return [];
   const vectorLiteral = `[${queryVector.join(",")}]`;
   const limit = Math.max(1, Math.min(input.limit ?? 8, 12));
