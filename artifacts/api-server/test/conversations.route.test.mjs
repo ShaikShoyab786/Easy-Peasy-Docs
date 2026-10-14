@@ -968,6 +968,7 @@ test("document-only chat uses scoped retrieved passages instead of the saved fil
   );
   assert.equal(harness.model.retrievalRequest.documentId, "document-rag");
   assert.equal(harness.model.retrievalRequest.ownerId, ownerId);
+  assert.equal(harness.model.retrievalRequest.limit, 12);
 });
 
 test("document-only follow-up reuses the saved file and keeps prior chat history", async () => {
@@ -1090,7 +1091,7 @@ test("document-only xAI payload grounds an unanswered question in its file attac
   assert.deepEqual(requestBody.input[0], {
     role: "developer",
     content:
-      "Answer the user's question using only the supplied document evidence. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the evidence does not contain the answer, say that it is not specified in the document. Do not guess.",
+      "Answer the user's question using only the supplied document evidence. Consider all retrieved passages together, including eligibility criteria, exclusions, definitions, and related provisions. Do not require the document to use the user's exact wording: explain reasonable conclusions that follow from the listed criteria, and clearly distinguish explicit statements from inferences. Do not use outside knowledge or unsupported assumptions. Say that something is not specified only when the supplied evidence contains no relevant information to answer it. Do not guess.",
   });
   assert.deepEqual(requestBody.input[1], {
     role: "user",
@@ -1118,7 +1119,7 @@ test("document-only xAI follow-up payload keeps prior messages and attaches the 
     {
       role: "developer",
       content:
-        "Answer the user's question using only the supplied document evidence. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the evidence does not contain the answer, say that it is not specified in the document. Do not guess.",
+        "Answer the user's question using only the supplied document evidence. Consider all retrieved passages together, including eligibility criteria, exclusions, definitions, and related provisions. Do not require the document to use the user's exact wording: explain reasonable conclusions that follow from the listed criteria, and clearly distinguish explicit statements from inferences. Do not use outside knowledge or unsupported assumptions. Say that something is not specified only when the supplied evidence contains no relevant information to answer it. Do not guess.",
     },
     history[0],
     history[1],

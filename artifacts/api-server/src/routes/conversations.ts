@@ -654,7 +654,7 @@ router.post(
             documentId: knowledgeDocument.id,
             ownerId,
             query: content,
-            limit: 8,
+            limit: 12,
           });
           retrievedChunkCount = passages.length;
           retrievedContextChars = passages.reduce(

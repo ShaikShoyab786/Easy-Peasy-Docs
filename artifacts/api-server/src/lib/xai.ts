@@ -20,7 +20,7 @@ export type AssistantHistoryMessage = {
 };
 
 const DOCUMENT_CONTEXT_ONLY_INSTRUCTION =
-  "Answer the user's question using only the supplied document evidence. Do not use outside knowledge, assumptions, or other conversation details as evidence. If the evidence does not contain the answer, say that it is not specified in the document. Do not guess.";
+  "Answer the user's question using only the supplied document evidence. Consider all retrieved passages together, including eligibility criteria, exclusions, definitions, and related provisions. Do not require the document to use the user's exact wording: explain reasonable conclusions that follow from the listed criteria, and clearly distinguish explicit statements from inferences. Do not use outside knowledge or unsupported assumptions. Say that something is not specified only when the supplied evidence contains no relevant information to answer it. Do not guess.";
 
 export type GrokChatAttachment = {
   buffer: Uint8Array;
